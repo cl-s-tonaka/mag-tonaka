@@ -17,20 +17,21 @@ export function createOrchestratorRouter(orchestrator: AgentOrchestrator): any {
     /**
      * POST /api/v2/orchestrator/process
      * リクエストを処理（自動ルーティング）
+     * 動的エージェント自動生成対応
      */
     processRequest: async (req: any, res: any) => {
       const requestId = randomUUID();
       logger.info('POST /api/v2/orchestrator/process', { requestId });
 
       try {
-        const { message } = req.body;
+        const { message, sessionId } = req.body;
 
         if (!message || typeof message !== 'string') {
           throw new Error('message is required and must be a string');
         }
 
-        // オーケストレーターでリクエストを処理
-        const result = await orchestrator.processRequest(message);
+        // オーケストレーターでリクエストを処理（sessionId対応）
+        const result = await orchestrator.processRequest(message, sessionId);
 
         // レスポンス
         const response: ApiResponse = {
@@ -39,6 +40,10 @@ export function createOrchestratorRouter(orchestrator: AgentOrchestrator): any {
             response: result.response,
             routing: result.routing,
             agentResult: result.agentResult,
+            awaitingApproval: result.awaitingApproval,
+            proposalId: result.proposalId,
+            createdAgent: result.createdAgent,
+            sessionId: sessionId || 'default',
             processedAt: new Date().toISOString(),
           },
           error: result.error ? { code: 'PROCESSING_ERROR', message: result.error } : undefined,
@@ -61,7 +66,7 @@ export function createOrchestratorRouter(orchestrator: AgentOrchestrator): any {
       logger.info('POST /api/v2/orchestrator/route', { requestId });
 
       try {
-        const { message } = req.body;
+        const { message, sessionId } = req.body;
 
         if (!message || typeof message !== 'string') {
           throw new Error('message is required and must be a string');
@@ -69,13 +74,15 @@ export function createOrchestratorRouter(orchestrator: AgentOrchestrator): any {
 
         // 内部的にdecideRoutingを呼び出すためにprocessRequestを使用
         // ただし実際の実行はしない
-        const result = await orchestrator.processRequest(message);
+        const result = await orchestrator.processRequest(message, sessionId);
 
         // レスポンス（ルーティング情報のみ）
         const response: ApiResponse = {
           success: true,
           data: {
             routing: result.routing,
+            awaitingApproval: result.awaitingApproval,
+            proposalId: result.proposalId,
             analyzedAt: new Date().toISOString(),
           },
         };
@@ -207,13 +214,54 @@ export function createOrchestratorRouter(orchestrator: AgentOrchestrator): any {
       logger.info('DELETE /api/v2/orchestrator/history', { requestId });
 
       try {
+        const { sessionId } = req.body || {};
+
         orchestrator.clearHistory();
+
+        // セッション状態もクリア（指定がある場合）
+        if (sessionId) {
+          orchestrator.clearSessionState(sessionId);
+        }
 
         // レスポンス
         const response: ApiResponse = {
           success: true,
           data: {
             message: 'Conversation history cleared',
+            sessionCleared: sessionId || null,
+          },
+        };
+
+        res.status(200).json(response);
+      } catch (error: any) {
+        const errorResponse = createErrorResponse(error, requestId);
+        const status = getHttpStatus(errorResponse.error!.code);
+        res.status(status).json(errorResponse);
+      }
+    },
+
+    /**
+     * DELETE /api/v2/orchestrator/session/:sessionId
+     * 特定セッションの状態をクリア
+     */
+    clearSession: async (req: any, res: any) => {
+      const requestId = randomUUID();
+      const { sessionId } = req.params;
+      logger.info('DELETE /api/v2/orchestrator/session', { requestId, sessionId });
+
+      try {
+        if (!sessionId) {
+          throw new Error('sessionId is required');
+        }
+
+        orchestrator.clearSessionState(sessionId);
+
+        // レスポンス
+        const response: ApiResponse = {
+          success: true,
+          data: {
+            message: `Session ${sessionId} cleared`,
+            sessionId,
           },
         };
 

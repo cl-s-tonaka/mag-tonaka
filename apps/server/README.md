@@ -11,6 +11,7 @@ API経由で動的にエージェントを登録し、LLMでプロンプトを�
 - **動的エージェント登録**: API経由でエージェントを即座に追加・削除
 - **LiteLLM統合**: OpenAI互換APIで任意のLLMを使用可能
 - **マルチエージェント・オーケストレーション**: リクエストを分析し最適なエージェントにルーティング
+- **動的エージェント自動生成**: 対応不可なリクエストに対して新エージェントを提案・自動生成
 - **ツール実行**: サンドボックスによる安全なツール実行
 - **並列・パイプライン実行**: 複数エージェントの協調動作
 
@@ -23,6 +24,7 @@ API経由で動的にエージェントを登録し、LLMでプロンプトを�
 | エージェント作成・一覧・実行 | OK |
 | ツール付きエージェント実行 | OK |
 | オーケストレーター（自動ルーティング） | OK |
+| **動的エージェント自動生成** | OK |
 | 並列実行 | OK |
 | パイプライン実行 | OK |
 
@@ -52,6 +54,10 @@ PORT=3001
 # フィーチャーフラグ
 ENABLE_DYNAMIC_AGENTS=true
 ENABLE_DYNAMIC_TOOLS=true
+
+# 動的エージェント自動生成設定
+PROPOSAL_CONFIDENCE_THRESHOLD=0.7   # この閾値未満で新エージェントを提案
+AUTO_EXECUTE_AFTER_CREATE=true      # 作成後に元リクエストを自動実行
 ```
 
 ### 2. サーバー起動
@@ -74,18 +80,87 @@ curl http://localhost:3001/health
 curl http://localhost:3001/api/v2/dynamic-agents
 ```
 
+## 動的エージェント自動生成
+
+### 概要
+
+ユーザーのリクエストに対応できる既存エージェントがない場合（confidence < 0.7）、システムが新しいエージェントを提案し、ユーザーの承認後に自動生成します。
+
+### 処理フロー
+
+```
+ユーザー: 「株価を分析して」
+       ↓
+AgentOrchestrator.processRequest()
+       ↓
+decideRouting() で confidence 判定
+       ↓
+confidence < 0.7 (対応不可)
+       ↓
+AgentProposalService.createProposal()
+       ↓
+オーケストレーター:
+「対応できるエージェントが見つかりませんでした。
+ Stock Analysis Agent を作成しますか？
+ - 説明: 株価データの取得と分析を行う
+ - 機能: リアルタイム株価取得、チャート分析
+ 作成する場合は「はい」、しない場合は「いいえ」と回答してください。」
+       ↓
+ユーザー: 「はい」
+       ↓
+AgentGeneratorAgent.generateFromProposal()
+       ↓
+DynamicAgentManager.createAgent()
+       ↓
+オーケストレーター:
+「Stock Analysis Agent を作成しました。
+ 元のリクエストの処理結果:
+ [株価分析結果]」
+       ↓
+次回以降、同じリクエストは新エージェントで処理
+```
+
+### 使用例
+
+```bash
+# Step 1: 対応不可なリクエストを送信（提案が返される）
+curl -X POST http://localhost:3001/api/v2/orchestrator/process \
+  -H "Content-Type: application/json" \
+  -d '{"message": "株価を分析して", "sessionId": "my-session"}'
+
+# Step 2: 提案を承認（エージェントが作成され、元リクエストが処理される）
+curl -X POST http://localhost:3001/api/v2/orchestrator/process \
+  -H "Content-Type: application/json" \
+  -d '{"message": "はい", "sessionId": "my-session"}'
+
+# Step 3: 同じリクエストを再送信（新エージェントで処理される）
+curl -X POST http://localhost:3001/api/v2/orchestrator/process \
+  -H "Content-Type: application/json" \
+  -d '{"message": "株価を分析して", "sessionId": "my-session"}'
+```
+
+詳細なテストフローは [docs/DYNAMIC_AGENT_AUTO_GENERATION_TEST.md](../../docs/DYNAMIC_AGENT_AUTO_GENERATION_TEST.md) を参照してください。
+
+### 承認キーワード
+
+| 承認 | 拒否 |
+|-----|------|
+| はい, yes, ok, 作成, 作って, お願い, よろしく | いいえ, no, やめる, キャンセル, 不要, 中止 |
+
 ## アーキテクチャ
 
 ```
 apps/server/src/
 ├── services/                     # 外部サービス統合
-│   └── LiteLLMService.ts         # LiteLLM/OpenAI互換API
+│   ├── LiteLLMService.ts         # LiteLLM/OpenAI互換API
+│   └── AgentProposalService.ts   # 新エージェント提案生成
 ├── orchestrator/                 # マルチエージェント調整
-│   ├── AgentOrchestrator.ts      # オーケストレーター
+│   ├── AgentOrchestrator.ts      # オーケストレーター（自動生成対応）
+│   ├── ConversationStateManager.ts # 会話状態管理
 │   └── orchestratorRouter.ts     # オーケストレーターAPI
 ├── agents/                       # 静的エージェント
 │   ├── SupervisorAgent.ts        # タスク分析・ルーティング
-│   └── AgentGeneratorAgent.ts    # 対話的エージェント作成
+│   └── AgentGeneratorAgent.ts    # 対話的・自動エージェント生成
 ├── dynamic/                      # 動的エージェントシステム
 │   ├── dynamicSystem.ts          # エントリーポイント
 │   ├── managers/                 # ライフサイクル管理
@@ -99,6 +174,10 @@ apps/server/src/
 │   │   ├── DynamicToolExecutor.ts
 │   │   ├── ToolSandbox.ts
 │   │   └── agentManagementTools.ts
+│   ├── types/                    # 型定義
+│   │   ├── dynamicAgent.types.ts
+│   │   ├── dynamicTool.types.ts
+│   │   └── proposal.types.ts     # 提案関連の型
 │   ├── storage/                  # データベース
 │   │   ├── DynamicAgentStorage.ts
 │   │   ├── DynamicToolStorage.ts
@@ -129,12 +208,37 @@ apps/server/src/
 
 | メソッド | エンドポイント | 説明 |
 |---------|--------------|------|
-| POST | `/api/v2/orchestrator/process` | **自動ルーティング処理** |
+| POST | `/api/v2/orchestrator/process` | **自動ルーティング処理（自動生成対応）** |
 | POST | `/api/v2/orchestrator/route` | ルーティング分析のみ |
 | POST | `/api/v2/orchestrator/parallel` | **並列実行** |
 | POST | `/api/v2/orchestrator/pipeline` | **パイプライン実行** |
 | GET | `/api/v2/orchestrator/config` | 設定取得 |
 | DELETE | `/api/v2/orchestrator/history` | 履歴クリア |
+| DELETE | `/api/v2/orchestrator/session/:id` | セッション状態クリア |
+
+### processRequest レスポンス形式
+
+```json
+{
+  "success": true,
+  "data": {
+    "response": "処理結果またはエージェント提案メッセージ",
+    "routing": {
+      "targetAgentId": "エージェントID",
+      "reason": "選択理由",
+      "confidence": 0.95
+    },
+    "awaitingApproval": false,
+    "proposalId": "提案ID（承認待ち時のみ）",
+    "createdAgent": {
+      "agentId": "新エージェントID",
+      "displayName": "新エージェント名"
+    },
+    "sessionId": "セッションID",
+    "processedAt": "2026-01-30T10:00:00.000Z"
+  }
+}
+```
 
 ## 使用例
 
@@ -233,7 +337,21 @@ curl -X POST http://localhost:3001/api/v2/orchestrator/process \
 }
 ```
 
-### 4. 並列実行
+### 4. 動的エージェント自動生成フロー
+
+```bash
+# Step 1: 対応不可なリクエスト（提案が返される）
+curl -X POST http://localhost:3001/api/v2/orchestrator/process \
+  -H "Content-Type: application/json" \
+  -d '{"message": "株価を分析して", "sessionId": "test-session"}'
+
+# Step 2: 承認（エージェント作成+元リクエスト処理）
+curl -X POST http://localhost:3001/api/v2/orchestrator/process \
+  -H "Content-Type: application/json" \
+  -d '{"message": "はい", "sessionId": "test-session"}'
+```
+
+### 5. 並列実行
 
 ```bash
 curl -X POST http://localhost:3001/api/v2/orchestrator/parallel \
@@ -246,7 +364,7 @@ curl -X POST http://localhost:3001/api/v2/orchestrator/parallel \
   }'
 ```
 
-### 5. パイプライン実行
+### 6. パイプライン実行
 
 ```bash
 curl -X POST http://localhost:3001/api/v2/orchestrator/pipeline \
@@ -291,6 +409,7 @@ import { LiteLLMService } from './services/LiteLLMService';
 import { DynamicSystem } from './dynamic/dynamicSystem';
 import { AgentOrchestrator } from './orchestrator/AgentOrchestrator';
 import { SupervisorAgent } from './agents/SupervisorAgent';
+import { AgentGeneratorAgent } from './agents/AgentGeneratorAgent';
 
 // 1. LLMサービス初期化
 const llmService = new LiteLLMService({
@@ -305,14 +424,26 @@ const agentManager = dynamicSystem.getManager();
 
 // 3. 静的エージェント初期化
 const supervisor = new SupervisorAgent({}, agentManager, llmService);
+const agentGenerator = new AgentGeneratorAgent({}, agentManager);
 
-// 4. オーケストレーター初期化
-const orchestrator = new AgentOrchestrator(agentManager, llmService);
+// 4. オーケストレーター初期化（自動生成対応）
+const orchestrator = new AgentOrchestrator(agentManager, llmService, undefined, {
+  confidenceThreshold: 0.7,
+  autoExecuteAfterCreate: true,
+});
 orchestrator.registerStaticAgent('supervisor', supervisor);
+orchestrator.registerStaticAgent('agentGenerator', agentGenerator);
+orchestrator.setAgentGenerator(agentGenerator);
 
-// 5. リクエスト処理
-const result = await orchestrator.processRequest('今日の天気は？');
+// 5. リクエスト処理（セッションID指定）
+const result = await orchestrator.processRequest('株価を分析して', 'user-session-123');
 console.log(result.response);
+
+// 承認待ちの場合
+if (result.awaitingApproval) {
+  const approvalResult = await orchestrator.processRequest('はい', 'user-session-123');
+  console.log(approvalResult.response);
+}
 ```
 
 ## セキュリティ
@@ -391,6 +522,8 @@ npm run migrate          # DBマイグレーション
 | `ENABLE_DYNAMIC_TOOLS` | `false` | 動的ツール有効化 |
 | `ENABLE_DEBUG_LOGGING` | `false` | デバッグログ |
 | `ENABLE_VM2_SANDBOX` | `true` | VM2サンドボックス |
+| `PROPOSAL_CONFIDENCE_THRESHOLD` | `0.7` | 新エージェント提案の閾値 |
+| `AUTO_EXECUTE_AFTER_CREATE` | `true` | 作成後に元リクエスト自動実行 |
 
 ## 開発時の注意
 
@@ -413,12 +546,18 @@ npm install vm2       # サンドボックス（本番推奨）
 
 ## ドキュメント
 
-詳細な設計ドキュメントは `docs/dynamic-agent-system/` を参照してください。
+| ドキュメント | 内容 |
+|------------|------|
+| `docs/DYNAMIC_AGENT_ARCHITECTURE.md` | 動的エージェントシステムのアーキテクチャ |
+| `docs/DYNAMIC_AGENT_AUTO_GENERATION_TEST.md` | 動的エージェント自動生成のテストフロー |
+| `docs/LITELLM_SETUP.md` | LiteLLMセットアップガイド |
+| `docs/dynamic-agent-system/` | 詳細設計ドキュメント |
 
 ## バージョン履歴
 
 | バージョン | 日付 | 変更内容 |
 |----------|------|---------|
+| 2.2.0 | 2026-01-30 | 動的エージェント自動生成システム追加 |
 | 2.1.0 | 2026-01-30 | ツールパラメータ形式修正、LLMメッセージ形式修正、モックDB改善 |
 | 2.0.0 | 2026-01-30 | LiteLLM統合、マルチエージェント・オーケストレーター追加 |
 | 1.0.0 | 2026-01-29 | 初版リリース |

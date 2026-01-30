@@ -2,6 +2,7 @@
  * マルチエージェントシステム統合サンプル
  *
  * LiteLLM統合とマルチエージェント・オーケストレーターの使用例
+ * 動的エージェント自動生成システムを含む
  *
  * 環境変数:
  *   LITELLM_API_KEY      - LiteLLM API Key
@@ -9,6 +10,8 @@
  *   LITELLM_DEFAULT_MODEL - デフォルトモデル (default: gpt-4o-mini)
  *   SUPERVISOR_MODEL     - Supervisorモデル (default: gpt-4o)
  *   ORCHESTRATOR_MODEL   - Orchestratorモデル (default: gpt-4o)
+ *   PROPOSAL_CONFIDENCE_THRESHOLD - 提案のconfidence閾値 (default: 0.7)
+ *   AUTO_EXECUTE_AFTER_CREATE - 作成後に元リクエスト自動実行 (default: true)
  */
 
 // 環境変数を読み込み
@@ -20,6 +23,7 @@ import { DynamicSystem } from './dynamic/dynamicSystem';
 import { DynamicAgentManager } from './dynamic/managers/DynamicAgentManager';
 import { LiteLLMService } from './services/LiteLLMService';
 import { SupervisorAgent } from './agents/SupervisorAgent';
+import { AgentGeneratorAgent } from './agents/AgentGeneratorAgent';
 import { AgentOrchestrator } from './orchestrator/AgentOrchestrator';
 import { createDynamicAgentsRouter } from './dynamic/api/dynamicAgentsRouter';
 import { createOrchestratorRouter } from './orchestrator/orchestratorRouter';
@@ -64,17 +68,29 @@ async function main() {
   console.log('🤖 Initializing Static Agents...');
 
   const supervisor = new SupervisorAgent({}, agentManager, llmService);
-  console.log('✅ Supervisor Agent initialized\n');
+  console.log('  ✅ Supervisor Agent initialized');
+
+  const agentGenerator = new AgentGeneratorAgent({}, agentManager);
+  console.log('  ✅ Agent Generator Agent initialized\n');
 
   // ===============================================
   // 4. オーケストレーターの初期化
   // ===============================================
   console.log('🎯 Initializing Agent Orchestrator...');
 
-  const orchestrator = new AgentOrchestrator(agentManager, llmService);
-  orchestrator.registerStaticAgent('supervisor', supervisor);
+  const orchestrator = new AgentOrchestrator(agentManager, llmService, undefined, {
+    confidenceThreshold: parseFloat(process.env.PROPOSAL_CONFIDENCE_THRESHOLD || '0.7'),
+    autoExecuteAfterCreate: process.env.AUTO_EXECUTE_AFTER_CREATE !== 'false',
+  });
 
-  console.log('✅ Orchestrator initialized\n');
+  // 静的エージェントを登録
+  orchestrator.registerStaticAgent('supervisor', supervisor);
+  orchestrator.registerStaticAgent('agentGenerator', agentGenerator);
+
+  // AgentGeneratorAgentをオーケストレーターに設定
+  orchestrator.setAgentGenerator(agentGenerator);
+
+  console.log('✅ Orchestrator initialized with dynamic agent auto-generation support\n');
 
   // ===============================================
   // 5. サンプルエージェントの作成
@@ -206,6 +222,10 @@ async function main() {
       status: 'ok',
       llmConnected: connectionTest.success,
       agentCount: agentManager.getAllAgents().length,
+      features: {
+        dynamicAgentGeneration: true,
+        proposalWorkflow: true,
+      },
     });
   });
 
@@ -225,7 +245,7 @@ async function main() {
     console.log('    POST   /api/v2/dynamic-agents/:id/run  - Run agent');
     console.log('    POST   /api/v2/dynamic-agents/:id/chat - Chat with agent\n');
     console.log('  Orchestrator:');
-    console.log('    POST   /api/v2/orchestrator/process    - Process request');
+    console.log('    POST   /api/v2/orchestrator/process    - Process request (with auto-generation)');
     console.log('    POST   /api/v2/orchestrator/route      - Analyze routing');
     console.log('    POST   /api/v2/orchestrator/parallel   - Run parallel');
     console.log('    POST   /api/v2/orchestrator/pipeline   - Run pipeline');
@@ -252,7 +272,17 @@ async function main() {
   console.log('     -H "Content-Type: application/json" \\');
   console.log('     -d \'{"message": "今日の東京の天気は？"}\'\n');
 
-  console.log('4. 並列実行:');
+  console.log('4. 動的エージェント自動生成フロー:');
+  console.log('   # Step 1: 対応不可なリクエストを送信');
+  console.log('   curl -X POST http://localhost:3001/api/v2/orchestrator/process \\');
+  console.log('     -H "Content-Type: application/json" \\');
+  console.log('     -d \'{"message": "株価を分析して", "sessionId": "test-session"}\'\n');
+  console.log('   # Step 2: 提案を承認');
+  console.log('   curl -X POST http://localhost:3001/api/v2/orchestrator/process \\');
+  console.log('     -H "Content-Type: application/json" \\');
+  console.log('     -d \'{"message": "はい", "sessionId": "test-session"}\'\n');
+
+  console.log('5. 並列実行:');
   console.log('   curl -X POST http://localhost:3001/api/v2/orchestrator/parallel \\');
   console.log('     -H "Content-Type: application/json" \\');
   console.log('     -d \'{"tasks": [');
@@ -260,7 +290,7 @@ async function main() {
   console.log('       {"agentId": "translator-agent", "task": "Hello を日本語に翻訳"}');
   console.log('     ]}\'\n');
 
-  console.log('5. パイプライン実行:');
+  console.log('6. パイプライン実行:');
   console.log('   curl -X POST http://localhost:3001/api/v2/orchestrator/pipeline \\');
   console.log('     -H "Content-Type: application/json" \\');
   console.log('     -d \'{"pipeline": [');

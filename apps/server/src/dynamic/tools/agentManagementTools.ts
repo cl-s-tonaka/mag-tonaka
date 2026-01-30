@@ -17,11 +17,14 @@ export function createAgentManagementTools(manager: DynamicAgentManager) {
     name: 'listAgents',
     description: '利用可能な全エージェント（静的+動的）の一覧を取得します。各エージェントのID、表示名、説明、タイプ（静的/動的）が含まれます。',
     parameters: {
-      includeInactive: {
-        type: 'boolean',
-        description: '非アクティブなエージェントも含めるか',
-        optional: true,
+      type: 'object',
+      properties: {
+        includeInactive: {
+          type: 'boolean',
+          description: '非アクティブなエージェントも含めるか',
+        },
       },
+      required: [],
     },
     execute: async ({ includeInactive = false }: any) => {
       logger.info('Executing listAgents tool', { includeInactive });
@@ -66,10 +69,14 @@ export function createAgentManagementTools(manager: DynamicAgentManager) {
     name: 'getAgentDetails',
     description: '特定のエージェントの詳細情報を取得します。エージェントの説明、使用可能なツール、モデル、ステータスなどの情報が含まれます。',
     parameters: {
-      agentId: {
-        type: 'string',
-        description: 'エージェントID',
+      type: 'object',
+      properties: {
+        agentId: {
+          type: 'string',
+          description: 'エージェントID',
+        },
       },
+      required: ['agentId'],
     },
     execute: async ({ agentId }: any) => {
       logger.info('Executing getAgentDetails tool', { agentId });
@@ -119,32 +126,30 @@ export function createAgentManagementTools(manager: DynamicAgentManager) {
     name: 'createAgent',
     description: '新しい動的エージェントを作成します。エージェントID、表示名、説明、指示、使用するモデル、ツールを指定できます。',
     parameters: {
-      agentId: {
-        type: 'string',
-        description: 'エージェントID（英数字、ハイフン、アンダースコアのみ）',
+      type: 'object',
+      properties: {
+        agentId: {
+          type: 'string',
+          description: 'エージェントID（英数字、ハイフン、アンダースコアのみ）',
+        },
+        displayName: {
+          type: 'string',
+          description: 'エージェントの表示名',
+        },
+        description: {
+          type: 'string',
+          description: 'エージェントの説明',
+        },
+        instructions: {
+          type: 'string',
+          description: 'エージェントへの指示（システムプロンプト）',
+        },
+        model: {
+          type: 'string',
+          description: '使用するLLMモデル',
+        },
       },
-      displayName: {
-        type: 'string',
-        description: 'エージェントの表示名',
-      },
-      description: {
-        type: 'string',
-        description: 'エージェントの説明',
-      },
-      instructions: {
-        type: 'string',
-        description: 'エージェントへの指示（システムプロンプト）',
-      },
-      model: {
-        type: 'string',
-        description: '使用するLLMモデル',
-        optional: true,
-      },
-      tools: {
-        type: 'array',
-        description: 'エージェントが使用するツールの配列',
-        optional: true,
-      },
+      required: ['agentId', 'displayName', 'description', 'instructions'],
     },
     execute: async (params: any) => {
       logger.info('Executing createAgent tool', { agentId: params.agentId });
@@ -188,14 +193,18 @@ export function createAgentManagementTools(manager: DynamicAgentManager) {
     name: 'deleteAgent',
     description: '動的エージェントを削除します。静的エージェントは削除できません。',
     parameters: {
-      agentId: {
-        type: 'string',
-        description: '削除するエージェントのID',
+      type: 'object',
+      properties: {
+        agentId: {
+          type: 'string',
+          description: '削除するエージェントのID',
+        },
+        confirm: {
+          type: 'boolean',
+          description: '削除を確認（trueで削除実行）',
+        },
       },
-      confirm: {
-        type: 'boolean',
-        description: '削除を確認（trueで削除実行）',
-      },
+      required: ['agentId', 'confirm'],
     },
     execute: async ({ agentId, confirm }: any) => {
       logger.info('Executing deleteAgent tool', { agentId, confirm });
@@ -231,10 +240,14 @@ export function createAgentManagementTools(manager: DynamicAgentManager) {
     name: 'searchAgents',
     description: 'キーワードでエージェントを検索します。エージェントの名前、説明、ツール名を対象に検索します。',
     parameters: {
-      query: {
-        type: 'string',
-        description: '検索キーワード',
+      type: 'object',
+      properties: {
+        query: {
+          type: 'string',
+          description: '検索キーワード',
+        },
       },
+      required: ['query'],
     },
     execute: async ({ query }: any) => {
       logger.info('Executing searchAgents tool', { query });

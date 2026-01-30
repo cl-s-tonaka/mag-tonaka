@@ -7,6 +7,14 @@ import { LiteLLMService, type LLMMessage, type LLMTool } from '../services/LiteL
 import { DynamicAgentManager } from '../dynamic/managers/DynamicAgentManager';
 import { logger } from '../dynamic/utils/logger';
 import type { DynamicAgent } from '../dynamic/agents/DynamicAgentCreator';
+import { ConversationStateManager } from './ConversationStateManager';
+import { AgentProposalService } from '../services/AgentProposalService';
+import type { AgentGeneratorAgent } from '../agents/AgentGeneratorAgent';
+import type {
+  AgentProposal,
+  ExtendedOrchestrationResult,
+  DEFAULT_PROPOSAL_CONFIG,
+} from '../dynamic/types/proposal.types';
 
 /**
  * ルーティング結果
@@ -27,6 +35,12 @@ export interface OrchestrationResult {
   routing: RoutingDecision;
   agentResult?: any;
   error?: string;
+  awaitingApproval?: boolean;
+  proposalId?: string;
+  createdAgent?: {
+    agentId: string;
+    displayName: string;
+  };
 }
 
 /**
@@ -41,6 +55,19 @@ interface AgentInfo {
 }
 
 /**
+ * オーケストレーター設定
+ */
+export interface OrchestratorConfig {
+  confidenceThreshold: number;
+  autoExecuteAfterCreate: boolean;
+}
+
+const DEFAULT_CONFIG: OrchestratorConfig = {
+  confidenceThreshold: parseFloat(process.env.PROPOSAL_CONFIDENCE_THRESHOLD || '0.7'),
+  autoExecuteAfterCreate: process.env.AUTO_EXECUTE_AFTER_CREATE !== 'false',
+};
+
+/**
  * マルチエージェント・オーケストレーター
  */
 export class AgentOrchestrator {
@@ -50,14 +77,37 @@ export class AgentOrchestrator {
   private routerModel: string;
   private conversationHistory: LLMMessage[] = [];
 
+  // 動的エージェント生成関連
+  private stateManager: ConversationStateManager;
+  private proposalService: AgentProposalService;
+  private agentGenerator: AgentGeneratorAgent | null = null;
+  private config: OrchestratorConfig;
+
   constructor(
     agentManager: DynamicAgentManager,
     llmService?: LiteLLMService,
-    routerModel?: string
+    routerModel?: string,
+    config?: Partial<OrchestratorConfig>
   ) {
     this.agentManager = agentManager;
     this.llmService = llmService || LiteLLMService.getInstance();
     this.routerModel = routerModel || process.env.ORCHESTRATOR_MODEL || 'gpt-4o';
+    this.config = { ...DEFAULT_CONFIG, ...config };
+
+    // 状態管理と提案サービスの初期化
+    this.stateManager = new ConversationStateManager();
+    this.proposalService = new AgentProposalService(this.llmService, {
+      confidenceThreshold: this.config.confidenceThreshold,
+      autoExecuteAfterCreate: this.config.autoExecuteAfterCreate,
+    });
+  }
+
+  /**
+   * AgentGeneratorAgentを設定
+   */
+  setAgentGenerator(generator: AgentGeneratorAgent): void {
+    this.agentGenerator = generator;
+    logger.info('AgentGenerator set for orchestrator');
   }
 
   /**
@@ -71,26 +121,30 @@ export class AgentOrchestrator {
   /**
    * ユーザーリクエストを処理
    */
-  async processRequest(userMessage: string): Promise<OrchestrationResult> {
-    logger.info('Processing request', { message: userMessage.substring(0, 100) });
+  async processRequest(userMessage: string, sessionId?: string): Promise<OrchestrationResult> {
+    const effectiveSessionId = sessionId || 'default';
+    logger.info('Processing request', {
+      message: userMessage.substring(0, 100),
+      sessionId: effectiveSessionId,
+    });
 
     try {
-      // 1. 利用可能なエージェント一覧を取得
+      // 1. 承認待ち状態かチェック
+      const pendingProposal = this.stateManager.getPendingProposal(effectiveSessionId);
+
+      if (pendingProposal) {
+        return await this.handleProposalResponse(userMessage, pendingProposal, effectiveSessionId);
+      }
+
+      // 2. 利用可能なエージェント一覧を取得
       const availableAgents = await this.getAvailableAgents();
 
       if (availableAgents.length === 0) {
-        return {
-          success: false,
-          response: '利用可能なエージェントがありません。先にエージェントを登録してください。',
-          routing: {
-            targetAgentId: 'none',
-            reason: 'No agents available',
-            confidence: 0,
-          },
-        };
+        // エージェントがない場合は提案フローへ
+        return await this.handleNoAgentsAvailable(userMessage, effectiveSessionId);
       }
 
-      // 2. ルーティング決定
+      // 3. ルーティング決定
       const routing = await this.decideRouting(userMessage, availableAgents);
 
       logger.info('Routing decision', {
@@ -99,7 +153,14 @@ export class AgentOrchestrator {
         reason: routing.reason,
       });
 
-      // 3. 自己処理（orchestrator自身で回答）の場合
+      // 4. confidence が閾値未満の場合は提案フローへ
+      // （orchestrator指定でもconfidenceが低い場合は提案フローに入る）
+      if (routing.confidence < this.config.confidenceThreshold) {
+        return await this.handleLowConfidence(userMessage, routing, effectiveSessionId);
+      }
+
+      // 5. 自己処理（orchestrator自身で回答）の場合
+      // （confidence >= threshold の一般的な質問のみ）
       if (routing.targetAgentId === 'orchestrator') {
         const directResponse = await this.handleDirectResponse(userMessage, availableAgents);
         return {
@@ -109,7 +170,7 @@ export class AgentOrchestrator {
         };
       }
 
-      // 4. 対象エージェントを取得
+      // 6. 対象エージェントを取得
       const targetAgent = await this.getAgent(routing.targetAgentId);
 
       if (!targetAgent) {
@@ -121,11 +182,11 @@ export class AgentOrchestrator {
         };
       }
 
-      // 5. エージェントを実行
+      // 7. エージェントを実行
       const task = routing.reformulatedTask || userMessage;
       const agentResult = await targetAgent.run(task);
 
-      // 6. 結果を返す
+      // 8. 結果を返す
       return {
         success: true,
         response: agentResult.output,
@@ -145,6 +206,201 @@ export class AgentOrchestrator {
         error: error.message,
       };
     }
+  }
+
+  /**
+   * 提案応答を処理
+   */
+  private async handleProposalResponse(
+    userMessage: string,
+    proposal: AgentProposal,
+    sessionId: string
+  ): Promise<OrchestrationResult> {
+    // 承認判定
+    if (this.proposalService.isApprovalMessage(userMessage)) {
+      return await this.executeProposal(proposal, sessionId);
+    }
+
+    // 拒否判定
+    if (this.proposalService.isRejectionMessage(userMessage)) {
+      this.stateManager.clearPendingProposal(sessionId);
+      return {
+        success: true,
+        response: 'わかりました。他にお手伝いできることはありますか？',
+        routing: {
+          targetAgentId: 'orchestrator',
+          reason: 'User rejected proposal',
+          confidence: 1.0,
+        },
+      };
+    }
+
+    // それ以外は提案を再表示
+    const proposalMessage = this.proposalService.formatProposalMessage(proposal);
+    return {
+      success: true,
+      response: `まだ提案に回答いただいていません。\n\n${proposalMessage}`,
+      routing: {
+        targetAgentId: 'orchestrator',
+        reason: 'Awaiting proposal response',
+        confidence: 1.0,
+      },
+      awaitingApproval: true,
+      proposalId: proposal.id,
+    };
+  }
+
+  /**
+   * 提案を実行（エージェント作成）
+   */
+  private async executeProposal(
+    proposal: AgentProposal,
+    sessionId: string
+  ): Promise<OrchestrationResult> {
+    logger.info('Executing proposal', {
+      proposalId: proposal.id,
+      agentId: proposal.suggestedAgent.agentId,
+    });
+
+    try {
+      // AgentGeneratorAgentを使用してエージェントを作成
+      let agent: any;
+
+      if (this.agentGenerator) {
+        agent = await this.agentGenerator.generateFromProposal(proposal);
+      } else {
+        // AgentGeneratorがない場合は直接DynamicAgentManagerを使用
+        agent = await this.agentManager.createAgent({
+          agentId: proposal.suggestedAgent.agentId,
+          displayName: proposal.suggestedAgent.displayName,
+          description: proposal.suggestedAgent.description,
+          instructions: proposal.suggestedAgent.instructions,
+          model: 'gpt-4o-mini',
+          tools: [],
+        });
+      }
+
+      // 提案状態をクリア
+      this.stateManager.clearPendingProposal(sessionId);
+
+      let response = `✅ **${proposal.suggestedAgent.displayName}** を作成しました。\n\n`;
+
+      // 元のリクエストを新エージェントで処理
+      if (this.config.autoExecuteAfterCreate && agent) {
+        logger.info('Auto-executing original request with new agent', {
+          agentId: proposal.suggestedAgent.agentId,
+          originalRequest: proposal.originalRequest.substring(0, 100),
+        });
+
+        try {
+          const result = await agent.run(proposal.originalRequest);
+          response += `📝 **元のリクエストの処理結果:**\n\n${result.output}`;
+        } catch (execError: any) {
+          logger.error('Failed to execute with new agent', { error: execError.message });
+          response += `⚠️ 元のリクエストの処理中にエラーが発生しました: ${execError.message}\n`;
+          response += `新しいリクエストをお試しください。`;
+        }
+      } else {
+        response += `このエージェントで何をお手伝いしましょうか？`;
+      }
+
+      return {
+        success: true,
+        response,
+        routing: {
+          targetAgentId: proposal.suggestedAgent.agentId,
+          reason: 'Agent created from proposal',
+          confidence: 1.0,
+        },
+        createdAgent: {
+          agentId: proposal.suggestedAgent.agentId,
+          displayName: proposal.suggestedAgent.displayName,
+        },
+      };
+    } catch (error: any) {
+      logger.error('Failed to execute proposal', { error: error.message });
+      this.stateManager.clearPendingProposal(sessionId);
+
+      return {
+        success: false,
+        response: `エージェントの作成に失敗しました: ${error.message}`,
+        routing: {
+          targetAgentId: 'error',
+          reason: error.message,
+          confidence: 0,
+        },
+        error: error.message,
+      };
+    }
+  }
+
+  /**
+   * エージェントがない場合の処理
+   */
+  private async handleNoAgentsAvailable(
+    userMessage: string,
+    sessionId: string
+  ): Promise<OrchestrationResult> {
+    const proposal = await this.proposalService.createProposal({
+      userMessage,
+      availableAgents: [],
+    });
+
+    this.stateManager.setPendingProposal(sessionId, proposal);
+
+    const proposalMessage = this.proposalService.formatProposalMessage(proposal);
+
+    return {
+      success: true,
+      response: `利用可能なエージェントがありません。\n\n${proposalMessage}`,
+      routing: {
+        targetAgentId: 'orchestrator',
+        reason: 'No agents available, proposing new agent',
+        confidence: 0,
+      },
+      awaitingApproval: true,
+      proposalId: proposal.id,
+    };
+  }
+
+  /**
+   * 低confidence時の処理（提案フロー）
+   */
+  private async handleLowConfidence(
+    userMessage: string,
+    routing: RoutingDecision,
+    sessionId: string
+  ): Promise<OrchestrationResult> {
+    logger.info('Low confidence routing, proposing new agent', {
+      confidence: routing.confidence,
+      threshold: this.config.confidenceThreshold,
+    });
+
+    const availableAgents = await this.getAvailableAgents();
+
+    const proposal = await this.proposalService.createProposal({
+      userMessage,
+      availableAgents: availableAgents.map((a) => ({
+        id: a.id,
+        displayName: a.displayName,
+        description: a.description,
+      })),
+    });
+
+    this.stateManager.setPendingProposal(sessionId, proposal);
+
+    const proposalMessage = this.proposalService.formatProposalMessage(proposal);
+
+    return {
+      success: true,
+      response: proposalMessage,
+      routing: {
+        ...routing,
+        reason: `Low confidence (${routing.confidence.toFixed(2)} < ${this.config.confidenceThreshold})`,
+      },
+      awaitingApproval: true,
+      proposalId: proposal.id,
+    };
   }
 
   /**
@@ -174,6 +430,13 @@ ${agentDescriptions}
   "confidence": 0.0-1.0の信頼度,
   "reformulatedTask": "エージェントに渡すタスク（必要に応じて再構成）"
 }
+
+## confidence（信頼度）の基準
+- 1.0: リクエストがエージェントの能力に完全に一致
+- 0.8-0.9: リクエストがエージェントの能力にほぼ一致
+- 0.6-0.7: リクエストがエージェントの能力に部分的に一致
+- 0.3-0.5: リクエストがエージェントの能力に関連はあるが不十分
+- 0.0-0.2: 適切なエージェントがない
 
 JSONのみを出力してください。`;
 
@@ -356,13 +619,41 @@ ${agentList}
   }
 
   /**
+   * セッション状態をクリア
+   */
+  clearSessionState(sessionId: string): void {
+    this.stateManager.clearPendingProposal(sessionId);
+  }
+
+  /**
    * 設定を取得
    */
-  getConfig(): { routerModel: string; staticAgentCount: number } {
+  getConfig(): {
+    routerModel: string;
+    staticAgentCount: number;
+    confidenceThreshold: number;
+    autoExecuteAfterCreate: boolean;
+  } {
     return {
       routerModel: this.routerModel,
       staticAgentCount: this.staticAgents.size,
+      confidenceThreshold: this.config.confidenceThreshold,
+      autoExecuteAfterCreate: this.config.autoExecuteAfterCreate,
     };
+  }
+
+  /**
+   * 状態マネージャーを取得
+   */
+  getStateManager(): ConversationStateManager {
+    return this.stateManager;
+  }
+
+  /**
+   * 提案サービスを取得
+   */
+  getProposalService(): AgentProposalService {
+    return this.proposalService;
   }
 }
 

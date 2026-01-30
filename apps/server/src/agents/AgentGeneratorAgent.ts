@@ -5,6 +5,8 @@
 
 import type { DynamicAgentManager } from '../dynamic/managers/DynamicAgentManager';
 import { logger } from '../dynamic/utils/logger';
+import type { AgentProposal, ToolSuggestion } from '../dynamic/types/proposal.types';
+import type { DynamicToolDefinition, ToolParameter } from '../dynamic/types/dynamicAgent.types';
 
 /**
  * AgentGeneratorエージェントクラス
@@ -193,6 +195,127 @@ AgentGenerator:
         };
       },
     };
+  }
+
+  /**
+   * 提案からエージェントを自動生成
+   */
+  async generateFromProposal(proposal: AgentProposal): Promise<any> {
+    logger.info('Generating agent from proposal', {
+      proposalId: proposal.id,
+      agentId: proposal.suggestedAgent.agentId,
+    });
+
+    const { suggestedAgent } = proposal;
+
+    // ツール提案をDynamicToolDefinitionに変換
+    const tools: DynamicToolDefinition[] = this.convertToolSuggestions(
+      suggestedAgent.suggestedTools || []
+    );
+
+    // エージェントを作成
+    const agent = await this.dynamicAgentManager.createAgent({
+      agentId: suggestedAgent.agentId,
+      displayName: suggestedAgent.displayName,
+      description: suggestedAgent.description,
+      instructions: suggestedAgent.instructions,
+      model: 'gpt-4o-mini',
+      tools,
+      testExamples: [],
+    });
+
+    logger.info('Agent generated from proposal', {
+      proposalId: proposal.id,
+      agentId: suggestedAgent.agentId,
+    });
+
+    return agent;
+  }
+
+  /**
+   * ツール名をOpenAI API互換形式にサニタイズ
+   */
+  private sanitizeToolName(name: string): string {
+    // 英数字、アンダースコア、ハイフンのみを許可
+    let sanitized = name
+      .replace(/[^a-zA-Z0-9_-]/g, '_')  // 不正文字をアンダースコアに置換
+      .replace(/_+/g, '_')               // 連続アンダースコアを1つに
+      .replace(/^_|_$/g, '');            // 先頭・末尾のアンダースコアを削除
+
+    // 空文字の場合はデフォルト名
+    if (!sanitized) {
+      sanitized = `tool_${Date.now()}`;
+    }
+
+    return sanitized;
+  }
+
+  /**
+   * ツール提案をDynamicToolDefinitionに変換
+   */
+  private convertToolSuggestions(suggestions: ToolSuggestion[]): DynamicToolDefinition[] {
+    return suggestions.map((suggestion) => {
+      const parameters: ToolParameter[] = (suggestion.parameters || []).map((param) => ({
+        name: param.name,
+        zodType: this.mapTypeToZodType(param.type),
+        description: param.description,
+        optional: param.optional,
+      }));
+
+      // デフォルトの実装を生成
+      const implementation = this.generateToolImplementation(suggestion);
+
+      return {
+        name: this.sanitizeToolName(suggestion.name),  // サニタイズを適用
+        description: suggestion.description,
+        parameters,
+        implementation,
+      };
+    });
+  }
+
+  /**
+   * 型をZod型にマッピング
+   */
+  private mapTypeToZodType(type: string): 'string' | 'number' | 'boolean' | 'enum' | 'object' | 'array' {
+    const typeMap: Record<string, 'string' | 'number' | 'boolean' | 'enum' | 'object' | 'array'> = {
+      string: 'string',
+      number: 'number',
+      boolean: 'boolean',
+      enum: 'enum',
+      object: 'object',
+      array: 'array',
+      int: 'number',
+      integer: 'number',
+      float: 'number',
+      bool: 'boolean',
+    };
+
+    return typeMap[type.toLowerCase()] || 'string';
+  }
+
+  /**
+   * ツールのデフォルト実装を生成
+   */
+  private generateToolImplementation(suggestion: ToolSuggestion): string {
+    // パラメータ名を取得
+    const paramNames = (suggestion.parameters || []).map((p) => p.name);
+    const paramsStr = paramNames.length > 0
+      ? paramNames.map((n) => `params.${n}`).join(', ')
+      : '';
+
+    return `
+      // ${suggestion.description}
+      // 注意: この実装はプレースホルダーです。実際のロジックに置き換えてください。
+      logger.info('Tool ${suggestion.name} called', { params });
+
+      return {
+        success: true,
+        message: '${suggestion.name} が実行されました',
+        params: params,
+        // TODO: 実際の処理結果をここに返す
+      };
+    `;
   }
 
   /**

@@ -443,7 +443,7 @@ describe('Performance: Load Test', () => {
     await Promise.all(promises);
     const duration = Date.now() - startTime;
 
-    expect(duration).toBeLessThan(30000); // 30秒以内
+    expect(duration).toBeLessThan(30010); // 30秒以内
   });
 
   it('should handle 1000 agent listings', async () => {

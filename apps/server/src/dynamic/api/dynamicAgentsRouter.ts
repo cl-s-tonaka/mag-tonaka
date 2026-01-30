@@ -209,6 +209,104 @@ export function createDynamicAgentsRouter(manager: DynamicAgentManager): any {
         res.status(status).json(errorResponse);
       }
     },
+
+    /**
+     * POST /api/v2/dynamic-agents/:id/run
+     * エージェントを実行（プロンプト実行）
+     */
+    runAgent: async (req: any, res: any) => {
+      const requestId = randomUUID();
+      const agentId = req.params.id;
+      logger.info('POST /api/v2/dynamic-agents/:id/run', { requestId, agentId });
+
+      try {
+        // エージェント取得
+        const agent = manager.getAgent(agentId);
+
+        if (!agent) {
+          throw new Error(`Agent with ID '${agentId}' not found`);
+        }
+
+        // リクエストボディからタスクとコンテキストを取得
+        const { task, context } = req.body;
+
+        if (!task || typeof task !== 'string') {
+          throw new Error('task is required and must be a string');
+        }
+
+        // エージェントを実行
+        const result = await agent.run(task, context);
+
+        // レスポンス
+        const response: ApiResponse = {
+          success: true,
+          data: {
+            agentId,
+            output: result.output,
+            toolCalls: result.toolCalls || [],
+            model: result.model || agent.model,
+            executedAt: new Date().toISOString(),
+          },
+        };
+
+        res.status(200).json(response);
+      } catch (error: any) {
+        const errorResponse = createErrorResponse(error, requestId);
+        const status = getHttpStatus(errorResponse.error!.code);
+        res.status(status).json(errorResponse);
+      }
+    },
+
+    /**
+     * POST /api/v2/dynamic-agents/:id/chat
+     * エージェントとチャット（会話履歴を維持）
+     */
+    chatWithAgent: async (req: any, res: any) => {
+      const requestId = randomUUID();
+      const agentId = req.params.id;
+      logger.info('POST /api/v2/dynamic-agents/:id/chat', { requestId, agentId });
+
+      try {
+        // エージェント取得
+        const agent = manager.getAgent(agentId);
+
+        if (!agent) {
+          throw new Error(`Agent with ID '${agentId}' not found`);
+        }
+
+        // リクエストボディからメッセージを取得
+        const { message, clearHistory } = req.body;
+
+        if (!message || typeof message !== 'string') {
+          throw new Error('message is required and must be a string');
+        }
+
+        // 履歴クリアが要求された場合
+        if (clearHistory && agent.clearHistory) {
+          agent.clearHistory();
+        }
+
+        // エージェントを実行
+        const result = await agent.run(message);
+
+        // レスポンス
+        const response: ApiResponse = {
+          success: true,
+          data: {
+            agentId,
+            response: result.output,
+            toolCalls: result.toolCalls || [],
+            conversationHistory: agent.getHistory?.() || [],
+          },
+        };
+
+        res.status(200).json(response);
+      } catch (error: any) {
+        const errorResponse = createErrorResponse(error, requestId);
+        const status = getHttpStatus(errorResponse.error!.code);
+        res.status(status).json(errorResponse);
+      }
+    },
   };
 
   return routes;

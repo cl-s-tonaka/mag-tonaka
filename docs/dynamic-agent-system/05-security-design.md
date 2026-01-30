@@ -97,7 +97,7 @@ export class ToolSandbox {
       return fetch(url, {
         ...options,
         // タイムアウト追加
-        signal: AbortSignal.timeout(3000),
+        signal: AbortSignal.timeout(3001),
       });
     };
   }

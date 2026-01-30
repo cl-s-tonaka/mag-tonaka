@@ -1,16 +1,17 @@
 /**
  * Supervisorエージェント
  * ユーザーのリクエストを解釈し、適切なエージェントに割り振る
+ * LLMを使用してインテリジェントにタスクを処理
  */
 
 import type { DynamicAgentManager } from '../dynamic/managers/DynamicAgentManager';
 import { createAgentManagementTools } from '../dynamic/tools/agentManagementTools';
+import { LiteLLMService, type LLMMessage, type LLMTool } from '../services/LiteLLMService';
+import { logger } from '../dynamic/utils/logger';
 
 /**
  * Supervisorエージェントクラス
- *
- * 注意: この実装はVoltAgentフレームワークのAgentクラスを使用する前提です。
- * 実際の使用にはVoltAgentパッケージが必要です。
+ * LLMを使用してユーザーリクエストを処理
  */
 export class SupervisorAgent {
   private name: string = 'supervisor';
@@ -18,10 +19,20 @@ export class SupervisorAgent {
   private tools: any[];
   private memory: any;
   private dynamicAgentManager: DynamicAgentManager | null = null;
+  private llmService: LiteLLMService;
+  private model: string;
+  private conversationHistory: LLMMessage[] = [];
 
-  constructor(memory: any, dynamicAgentManager?: DynamicAgentManager) {
+  constructor(
+    memory: any,
+    dynamicAgentManager?: DynamicAgentManager,
+    llmService?: LiteLLMService,
+    model?: string
+  ) {
     this.memory = memory;
     this.dynamicAgentManager = dynamicAgentManager || null;
+    this.llmService = llmService || LiteLLMService.getInstance();
+    this.model = model || process.env.SUPERVISOR_MODEL || 'gpt-4o';
 
     // エージェント管理ツールを追加
     const managementTools = dynamicAgentManager
@@ -45,7 +56,7 @@ export class SupervisorAgent {
 
 1. **リクエスト分析**: ユーザーの要求を理解し、必要なエージェントを特定
 2. **エージェント管理**: 利用可能なエージェントの一覧取得、詳細確認
-3. **タスク委譲**: 適切なサブエージェントにタスクを委譲（将来実装）
+3. **タスク委譲**: 適切なサブエージェントにタスクを委譲
 4. **結果統合**: サブエージェントからの結果を統合してユーザーに返す
 
 ## 利用可能なツール
@@ -90,75 +101,192 @@ export class SupervisorAgent {
   }
 
   /**
-   * エージェント実行（簡易実装）
+   * エージェント実行（LLMを使用）
    */
   async run(task: string, context?: any): Promise<any> {
-    console.log(`[Supervisor] Running task: ${task}`);
+    logger.info('[Supervisor] Running task', { task: task.substring(0, 100) });
 
-    // 実際の実装では VoltAgent の Agent.run() を呼び出します
-    // const result = await super.run(task, context);
+    // メッセージを構築
+    const messages: LLMMessage[] = [
+      { role: 'system', content: this.instructions },
+      ...this.conversationHistory,
+      { role: 'user', content: task },
+    ];
 
-    // 簡易実装: タスクをパースしてツールを呼び出し
-    const lowerTask = task.toLowerCase();
+    // ツールをLLM形式に変換
+    const llmTools = this.convertToolsToLLMFormat();
 
-    if (lowerTask.includes('エージェント') && lowerTask.includes('一覧')) {
-      // エージェント一覧リクエスト
-      const tool = this.tools.find((t) => t.name === 'listAgents');
-      if (tool) {
-        const result = await tool.execute({});
-        return {
-          output: this.formatAgentList(result),
-          toolCalls: [{ name: 'listAgents', result }],
+    // ツール実行関数
+    const executeToolFn = async (name: string, args: Record<string, any>): Promise<any> => {
+      const tool = this.tools.find((t) => t.name === name);
+      if (!tool) {
+        throw new Error(`Tool not found: ${name}`);
+      }
+      return await tool.execute(args);
+    };
+
+    try {
+      let result: any;
+
+      if (llmTools.length > 0) {
+        // ツールがある場合
+        const response = await this.llmService.runWithTools(
+          messages,
+          llmTools,
+          executeToolFn,
+          { model: this.model }
+        );
+
+        result = {
+          output: response.response,
+          toolCalls: response.toolCalls,
+        };
+      } else {
+        // ツールがない場合
+        const response = await this.llmService.generateText(
+          task,
+          this.instructions,
+          { model: this.model }
+        );
+
+        result = {
+          output: response,
+          toolCalls: [],
         };
       }
-    }
 
-    if (lowerTask.includes('作成') || lowerTask.includes('作って')) {
-      // エージェント作成リクエスト
+      // 会話履歴を更新
+      this.conversationHistory.push({ role: 'user', content: task });
+      this.conversationHistory.push({ role: 'assistant', content: result.output });
+
+      // 履歴が長くなりすぎたら古いものを削除
+      if (this.conversationHistory.length > 20) {
+        this.conversationHistory = this.conversationHistory.slice(-20);
+      }
+
+      logger.info('[Supervisor] Task completed', {
+        outputLength: result.output.length,
+        toolCallCount: result.toolCalls.length,
+      });
+
+      return result;
+    } catch (error: any) {
+      logger.error('[Supervisor] Task failed', { error: error.message });
       return {
-        output: `エージェントを作成します。以下の情報を教えてください：
-1. エージェントID（例: weatherAgent）
-2. 表示名（例: Weather Agent）
-3. 説明（例: 天気情報を取得するエージェント）
-4. 指示（エージェントへのシステムプロンプト）
-
-または、AgentGeneratorエージェントを使用して対話的に作成することもできます。`,
+        output: `エラーが発生しました: ${error.message}`,
+        toolCalls: [],
+        error: error.message,
       };
     }
-
-    // デフォルトレスポンス
-    return {
-      output: `ご要望を承りました。利用可能なエージェント一覧を確認する場合は「エージェント一覧を表示して」とお伝えください。
-新しいエージェントを作成する場合は「エージェントを作成したい」とお伝えください。`,
-    };
   }
 
   /**
-   * エージェント一覧をフォーマット
+   * タスクを分析して適切なエージェントを推薦
    */
-  private formatAgentList(result: any): string {
-    if (!result.success) {
-      return `エージェント一覧の取得に失敗しました: ${result.error}`;
+  async analyzeAndRoute(task: string): Promise<{
+    recommendation: string;
+    targetAgent: string | null;
+    confidence: number;
+    reasoning: string;
+  }> {
+    // まずエージェント一覧を取得
+    const listTool = this.tools.find((t) => t.name === 'listAgents');
+    if (!listTool) {
+      return {
+        recommendation: 'エージェント管理ツールが利用できません',
+        targetAgent: null,
+        confidence: 0,
+        reasoning: 'No agent management tools available',
+      };
     }
 
-    const agents = result.agents || [];
-
-    if (agents.length === 0) {
-      return '現在、利用可能なエージェントはありません。';
+    const agentList = await listTool.execute({});
+    if (!agentList.success || !agentList.agents || agentList.agents.length === 0) {
+      return {
+        recommendation: '利用可能なエージェントがありません',
+        targetAgent: null,
+        confidence: 0,
+        reasoning: 'No agents available',
+      };
     }
 
-    let output = `## 利用可能なエージェント（${agents.length}個）\n\n`;
+    // LLMでルーティング分析
+    const agentDescriptions = agentList.agents
+      .map((a: any) => `- ${a.id}: ${a.description || a.displayName}`)
+      .join('\n');
 
-    for (const agent of agents) {
-      output += `### ${agent.displayName} (${agent.id})\n`;
-      output += `- **説明**: ${agent.description || '説明なし'}\n`;
-      output += `- **タイプ**: ${agent.type === 'dynamic' ? '動的' : '静的'}\n`;
-      output += `- **ステータス**: ${agent.status}\n`;
-      output += `- **モデル**: ${agent.model}\n`;
-      output += `- **ツール数**: ${agent.toolCount}\n\n`;
+    const analysisPrompt = `以下のタスクを実行するのに最適なエージェントを選んでください。
+
+タスク: ${task}
+
+利用可能なエージェント:
+${agentDescriptions}
+
+JSON形式で回答してください:
+{
+  "targetAgent": "エージェントID（該当なしの場合はnull）",
+  "confidence": 0.0-1.0,
+  "reasoning": "選択理由"
+}`;
+
+    const response = await this.llmService.generateText(
+      analysisPrompt,
+      'あなたはタスクルーターです。JSONのみで回答してください。',
+      { model: this.model, temperature: 0.3 }
+    );
+
+    try {
+      const jsonMatch = response.match(/\{[\s\S]*\}/);
+      if (!jsonMatch) {
+        throw new Error('No JSON found');
+      }
+      const analysis = JSON.parse(jsonMatch[0]);
+
+      const targetAgent = analysis.targetAgent
+        ? agentList.agents.find((a: any) => a.id === analysis.targetAgent)
+        : null;
+
+      return {
+        recommendation: targetAgent
+          ? `「${targetAgent.displayName}」エージェントをお勧めします: ${analysis.reasoning}`
+          : `適切なエージェントが見つかりませんでした: ${analysis.reasoning}`,
+        targetAgent: analysis.targetAgent,
+        confidence: analysis.confidence || 0.5,
+        reasoning: analysis.reasoning || '',
+      };
+    } catch {
+      return {
+        recommendation: '分析に失敗しました',
+        targetAgent: null,
+        confidence: 0,
+        reasoning: 'Failed to parse analysis result',
+      };
     }
+  }
 
-    return output;
+  /**
+   * ツールをLLM形式に変換
+   */
+  private convertToolsToLLMFormat(): LLMTool[] {
+    return this.tools.map((tool) => ({
+      type: 'function' as const,
+      function: {
+        name: tool.name,
+        description: tool.description,
+        parameters: tool.parameters || {
+          type: 'object',
+          properties: {},
+          required: [],
+        },
+      },
+    }));
+  }
+
+  /**
+   * 会話履歴をクリア
+   */
+  clearHistory(): void {
+    this.conversationHistory = [];
   }
 
   /**
@@ -169,7 +297,7 @@ export class SupervisorAgent {
       id: this.name,
       displayName: 'Supervisor Agent',
       description: 'ユーザーのリクエストを解釈し、適切なエージェントに割り振るメインエージェント',
-      model: 'openai/gpt-4o',
+      model: this.model,
       tools: this.tools.map((t) => ({
         name: t.name,
         description: t.description,

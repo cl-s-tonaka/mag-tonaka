@@ -137,7 +137,7 @@ mag/
 
 5. **ブラウザでアクセス**
    ```
-   http://localhost:3000
+   http://localhost:3001
    ```
 
 ## 主要技術スタック

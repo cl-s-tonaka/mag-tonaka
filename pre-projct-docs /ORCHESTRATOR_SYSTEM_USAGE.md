@@ -28,7 +28,7 @@
 
 ### 前提条件
 
-- MAGシステムが起動している（`http://localhost:3000`）
+- MAGシステムが起動している（`http://localhost:3001`）
 - チャットモードでChatAgentと対話している
 
 ### ユーザーの操作
@@ -408,7 +408,7 @@ Failed to fetch agents: 500 Internal Server Error
 - `/api/agents-with-examples` エンドポイントにエラーがある
 
 **解決方法**:
-1. サーバーが起動しているか確認: `http://localhost:3000`
+1. サーバーが起動しているか確認: `http://localhost:3001`
 2. ログを確認: サーバーのコンソール出力を確認
 3. 環境変数を確認: `API_URL` が正しく設定されているか
 

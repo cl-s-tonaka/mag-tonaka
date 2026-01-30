@@ -8,6 +8,7 @@ import { DynamicToolStorage } from '../storage/DynamicToolStorage';
 import { DynamicAgentCreator } from './DynamicAgentCreator';
 import type { DynamicAgentDefinition } from '../types/dynamicAgent.types';
 import { logger } from '../utils/logger';
+import { LiteLLMService } from '../../services/LiteLLMService';
 
 /**
  * 動的エージェントローダー
@@ -17,10 +18,10 @@ export class DynamicAgentLoader {
   private toolStorage: DynamicToolStorage;
   private creator: DynamicAgentCreator;
 
-  constructor(db: any) {
+  constructor(db: any, llmService?: LiteLLMService) {
     this.agentStorage = new DynamicAgentStorage(db);
     this.toolStorage = new DynamicToolStorage(db);
-    this.creator = new DynamicAgentCreator();
+    this.creator = new DynamicAgentCreator(llmService);
   }
 
   /**

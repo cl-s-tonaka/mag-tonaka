@@ -207,7 +207,7 @@ export class ToolSandbox {
 
       return fetch(url, {
         ...options,
-        signal: AbortSignal.timeout(3000),
+        signal: AbortSignal.timeout(3001),
       });
     };
   }
@@ -507,7 +507,7 @@ try {
 
 ```typescript
 // タイムアウトを延長（デバッグ用）
-new VM({ timeout: 30000 });
+new VM({ timeout: 30010 });
 ```
 
 ---

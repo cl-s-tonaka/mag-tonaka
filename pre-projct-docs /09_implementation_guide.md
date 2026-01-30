@@ -591,7 +591,7 @@ cd apps/server
 npm run dev
 
 # エージェント一覧で確認
-# ブラウザで http://localhost:3000 → エージェント一覧タブ
+# ブラウザで http://localhost:3001 → エージェント一覧タブ
 # "Data Analyzer" が表示されることを確認
 ```
 

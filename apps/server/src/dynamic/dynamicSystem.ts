@@ -116,8 +116,20 @@ export class DynamicSystem {
           if (tableName) {
             const table = storage.get(tableName) || [];
             const row: any = {};
-            if (query.args) {
-              // 簡易実装: argsを行データとして保存
+            if (query.args && tableName === 'dynamic_agents') {
+              // dynamic_agents テーブルの場合、カラム名をマッピング
+              row.id = query.args[0];
+              row.class_name = query.args[1];
+              row.display_name = query.args[2];
+              row.description = query.args[3];
+              row.instructions = query.args[4];
+              row.model = query.args[5];
+              row.status = query.args[6];
+              row.version = query.args[7];
+              row.metadata = query.args[8];
+              row.created_at = new Date().toISOString();
+              row.updated_at = new Date().toISOString();
+            } else if (query.args) {
               row.data = query.args;
             }
             table.push(row);
@@ -131,6 +143,16 @@ export class DynamicSystem {
           const tableName = sql.match(/FROM (\w+)/)?.[1];
           if (tableName) {
             const table = storage.get(tableName) || [];
+            // WHERE id = ? の場合、IDでフィルタリング
+            if (sql.includes('WHERE') && sql.includes('id = ?') && query.args?.[0]) {
+              const filteredRows = table.filter((row: any) => row.id === query.args[0] && row.status !== 'deleted');
+              return { rows: filteredRows };
+            }
+            // statusでフィルタリング
+            if (sql.includes("status != 'deleted'")) {
+              const filteredRows = table.filter((row: any) => row.status !== 'deleted');
+              return { rows: filteredRows };
+            }
             return { rows: table };
           }
           return { rows: [] };

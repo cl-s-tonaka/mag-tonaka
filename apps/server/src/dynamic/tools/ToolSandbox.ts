@@ -110,7 +110,7 @@ export class ToolSandbox {
 
         // 3秒のタイムアウトを設定
         const controller = new AbortController();
-        const timeoutId = setTimeout(() => controller.abort(), 3000);
+        const timeoutId = setTimeout(() => controller.abort(), 3001);
 
         const response = await fetch(url, {
           ...options,

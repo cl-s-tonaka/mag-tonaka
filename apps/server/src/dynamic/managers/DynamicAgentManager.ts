@@ -11,6 +11,14 @@ import { DynamicAgentLoader } from '../agents/DynamicAgentLoader';
 import { DynamicAgentRegistry } from './DynamicAgentRegistry';
 import type { DynamicAgentDefinition, CreateAgentRequest, UpdateAgentRequest } from '../types/dynamicAgent.types';
 import { logger } from '../utils/logger';
+import { LiteLLMService } from '../../services/LiteLLMService';
+
+/**
+ * マネージャー設定
+ */
+export interface DynamicAgentManagerConfig {
+  llmService?: LiteLLMService;
+}
 
 /**
  * 動的エージェントマネージャー
@@ -23,14 +31,16 @@ export class DynamicAgentManager {
   private loader: DynamicAgentLoader;
   private registry: DynamicAgentRegistry;
   private memory: any;
+  private llmService: LiteLLMService;
 
-  constructor(memory: any, db: any) {
+  constructor(memory: any, db: any, config?: DynamicAgentManagerConfig) {
     this.memory = memory;
+    this.llmService = config?.llmService || LiteLLMService.getInstance();
     this.agentStorage = new DynamicAgentStorage(db);
     this.toolStorage = new DynamicToolStorage(db);
     this.auditStorage = new AuditLogStorage(db);
-    this.creator = new DynamicAgentCreator();
-    this.loader = new DynamicAgentLoader(db);
+    this.creator = new DynamicAgentCreator(this.llmService);
+    this.loader = new DynamicAgentLoader(db, this.llmService);
     this.registry = new DynamicAgentRegistry();
   }
 

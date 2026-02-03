@@ -5,6 +5,7 @@
 
 import { logger } from '../utils/logger';
 import type { SandboxOptions } from '../types/dynamicTool.types';
+import { IntegrationRegistry } from '../../integrations/IntegrationRegistry';
 
 /**
  * ツールサンドボックス
@@ -19,14 +20,32 @@ export class ToolSandbox {
 
   constructor(implementation: string, options?: Partial<SandboxOptions>) {
     this.implementation = implementation;
+
+    // 統合モジュールから許可ドメインを動的に取得
+    const integrationDomains = IntegrationRegistry.getInstance().getAllAllowedDomains();
+
+    // デフォルトドメイン（後方互換性のため）
+    const defaultDomains = [
+      'api.weather.com',
+      'api.openweathermap.org',
+    ];
+
+    // マージ（重複を除去）
+    const allDomains = Array.from(new Set([
+      ...(options?.allowedDomains || defaultDomains),
+      ...integrationDomains,
+    ]));
+
     this.options = {
       timeout: options?.timeout || 5000,
-      allowedDomains: options?.allowedDomains || [
-        'api.weather.com',
-        'api.openweathermap.org',
-      ],
+      allowedDomains: allDomains,
       maxMemory: options?.maxMemory || 50 * 1024 * 1024, // 50MB
     };
+
+    logger.debug('ToolSandbox initialized', {
+      allowedDomains: this.options.allowedDomains,
+      integrationDomainsCount: integrationDomains.length,
+    });
   }
 
   /**

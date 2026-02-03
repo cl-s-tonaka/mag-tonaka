@@ -27,9 +27,42 @@ import { AgentGeneratorAgent } from './agents/AgentGeneratorAgent';
 import { AgentOrchestrator } from './orchestrator/AgentOrchestrator';
 import { createDynamicAgentsRouter } from './dynamic/api/dynamicAgentsRouter';
 import { createOrchestratorRouter } from './orchestrator/orchestratorRouter';
+import { initializeIntegrations, IntegrationRegistry } from './integrations';
 
 async function main() {
   console.log('🚀 Starting Multi-Agent System...\n');
+
+  // ===============================================
+  // 0. 統合モジュールの初期化
+  // ===============================================
+  console.log('🔌 Initializing Integration Modules...');
+  initializeIntegrations();
+
+  const integrationRegistry = IntegrationRegistry.getInstance();
+  const configuredIntegrations = integrationRegistry.getConfigured();
+  const allIntegrations = integrationRegistry.getAll();
+
+  console.log(`✅ ${allIntegrations.length} integration modules registered`);
+  console.log(`   ${configuredIntegrations.length} configured (API keys set)`);
+
+  if (configuredIntegrations.length > 0) {
+    configuredIntegrations.forEach((integration) => {
+      console.log(`   - ${integration.displayName} (${integration.tools.length} tools)`);
+    });
+  }
+
+  // 未設定の統合モジュールを警告
+  const unconfiguredIntegrations = allIntegrations.filter(
+    (i) => !configuredIntegrations.find((c) => c.id === i.id)
+  );
+  if (unconfiguredIntegrations.length > 0) {
+    console.log('   ⚠️ Unconfigured integrations:');
+    unconfiguredIntegrations.forEach((integration) => {
+      const status = integrationRegistry.getStatus(integration.id);
+      console.log(`      - ${integration.displayName}: missing ${status?.missingEnvVars.join(', ')}`);
+    });
+  }
+  console.log('');
 
   // ===============================================
   // 1. LiteLLMサービスの初期化

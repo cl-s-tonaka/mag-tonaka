@@ -6,6 +6,7 @@
 import { randomUUID } from 'crypto';
 import { LiteLLMService } from './LiteLLMService';
 import { logger } from '../dynamic/utils/logger';
+import { IntegrationRegistry } from '../integrations/IntegrationRegistry';
 import type {
   AgentProposal,
   ToolSuggestion,
@@ -20,9 +21,11 @@ import type {
 export class AgentProposalService {
   private llmService: LiteLLMService;
   private config: ProposalConfig;
+  private integrationRegistry: IntegrationRegistry;
 
   constructor(llmService: LiteLLMService, config?: Partial<ProposalConfig>) {
     this.llmService = llmService;
+    this.integrationRegistry = IntegrationRegistry.getInstance();
     this.config = {
       confidenceThreshold: config?.confidenceThreshold ?? 0.7,
       autoExecuteAfterCreate: config?.autoExecuteAfterCreate ?? true,
@@ -41,11 +44,23 @@ export class AgentProposalService {
       .map((a) => `- ${a.displayName} (${a.id}): ${a.description}`)
       .join('\n');
 
+    // 利用可能な統合モジュール情報を取得
+    const integrationInfo = this.integrationRegistry.getDetailedInfoForPrompt();
+    const availableToolNames = this.integrationRegistry.getAllAvailableToolNames();
+
     const systemPrompt = `あなたはマルチエージェントシステムの設計者です。
 ユーザーのリクエストに対応できる既存のエージェントがないため、新しいエージェントを設計してください。
 
 ## 既存エージェント（参考）
 ${existingAgentsList || '(なし)'}
+
+## 利用可能な統合モジュール（実装済みAPI）
+${integrationInfo}
+
+## 重要: ツール設計のガイドライン
+1. **統合モジュールのツールを優先使用**: 上記の統合モジュールで提供されているツール（${availableToolNames.join(', ') || 'なし'}）がある場合は、それを使用してください。
+2. **未実装のツールは控えめに**: 統合モジュールにないツールを提案する場合、そのツールは**プレースホルダー実装**となり、リアルタイムデータは取得できません。
+3. **LLMのみで対応可能な場合**: 外部データが不要な場合は、ツールなし（空配列）でエージェントを設計してください。
 
 ## タスク
 ユーザーのリクエストを分析し、新しいエージェントの設計を提案してください。
@@ -59,7 +74,7 @@ ${existingAgentsList || '(なし)'}
   "capabilities": ["機能1", "機能2", "機能3"],
   "suggestedTools": [
     {
-      "name": "tool_name (英数字、アンダースコア、ハイフンのみ。例: get_stock_price)",
+      "name": "tool_name (英数字、アンダースコア、ハイフンのみ。統合モジュールのツール名を使用: ${availableToolNames.join(', ') || 'なし'})",
       "description": "ツールの説明",
       "parameters": [
         { "name": "param1", "type": "string", "description": "説明" }
@@ -73,6 +88,7 @@ ${existingAgentsList || '(なし)'}
 注意:
 - agentIdはcamelCaseで、末尾に"Agent"を付ける
 - suggestedToolsは必須ではない（LLMのみで対応可能な場合は空配列）
+- 統合モジュールにあるツールを優先的に使用してください
 - 既存のエージェントと重複しないように設計
 - JSONのみを出力してください`;
 

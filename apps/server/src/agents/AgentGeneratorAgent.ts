@@ -7,6 +7,7 @@ import type { DynamicAgentManager } from '../dynamic/managers/DynamicAgentManage
 import { logger } from '../dynamic/utils/logger';
 import type { AgentProposal, ToolSuggestion } from '../dynamic/types/proposal.types';
 import type { DynamicToolDefinition, ToolParameter } from '../dynamic/types/dynamicAgent.types';
+import { IntegrationRegistry } from '../integrations/IntegrationRegistry';
 
 /**
  * AgentGeneratorエージェントクラス
@@ -19,10 +20,12 @@ export class AgentGeneratorAgent {
   private tools: any[];
   private memory: any;
   private dynamicAgentManager: DynamicAgentManager;
+  private integrationRegistry: IntegrationRegistry;
 
   constructor(memory: any, dynamicAgentManager: DynamicAgentManager) {
     this.memory = memory;
     this.dynamicAgentManager = dynamicAgentManager;
+    this.integrationRegistry = IntegrationRegistry.getInstance();
 
     // ツールの定義
     this.tools = [this.createAnalyzeRequirementsTool(), this.createGenerateAgentSpecTool()];
@@ -213,12 +216,30 @@ AgentGenerator:
       suggestedAgent.suggestedTools || []
     );
 
+    // 統合モジュールなしのツールがあるかチェック
+    const hasUnconfiguredTools = this.hasToolsWithoutIntegration(
+      suggestedAgent.suggestedTools || []
+    );
+
+    // instructionsを構築
+    let instructions = suggestedAgent.instructions;
+
+    if (hasUnconfiguredTools) {
+      // 統合モジュールがないツールがある場合、フォールバック指示を追加
+      instructions += `
+
+注意: このエージェントの一部のツールはリアルタイムデータを取得する機能がありません。
+あなたの知識の範囲内で、一般的な情報やアドバイスを提供してください。
+リアルタイムデータが必要な質問には、「最新の情報は外部サービスから取得できません」と前置きしてから、
+あなたの持つ一般的な知識に基づいて回答してください。`;
+    }
+
     // エージェントを作成
     const agent = await this.dynamicAgentManager.createAgent({
       agentId: suggestedAgent.agentId,
       displayName: suggestedAgent.displayName,
       description: suggestedAgent.description,
-      instructions: suggestedAgent.instructions,
+      instructions,
       model: 'gpt-4o-mini',
       tools,
       testExamples: [],
@@ -227,9 +248,23 @@ AgentGenerator:
     logger.info('Agent generated from proposal', {
       proposalId: proposal.id,
       agentId: suggestedAgent.agentId,
+      hasUnconfiguredTools,
     });
 
     return agent;
+  }
+
+  /**
+   * 統合モジュールがないツールがあるかチェック
+   */
+  private hasToolsWithoutIntegration(suggestions: ToolSuggestion[]): boolean {
+    for (const suggestion of suggestions) {
+      const integrationTool = this.integrationRegistry.getToolByName(suggestion.name);
+      if (!integrationTool) {
+        return true;
+      }
+    }
+    return false;
   }
 
   /**
@@ -296,24 +331,35 @@ AgentGenerator:
 
   /**
    * ツールのデフォルト実装を生成
+   * 統合モジュールがある場合はその実装を使用し、ない場合はフォールバック
    */
   private generateToolImplementation(suggestion: ToolSuggestion): string {
-    // パラメータ名を取得
-    const paramNames = (suggestion.parameters || []).map((p) => p.name);
-    const paramsStr = paramNames.length > 0
-      ? paramNames.map((n) => `params.${n}`).join(', ')
-      : '';
+    // 1. 対応する統合モジュールをチェック
+    const integrationTool = this.integrationRegistry.getToolByName(suggestion.name);
+
+    if (integrationTool) {
+      // 統合モジュールの実装を使用
+      logger.info('Using integration tool implementation', {
+        toolName: suggestion.name,
+      });
+      return integrationTool.implementation;
+    }
+
+    // 2. 統合モジュールがない場合はフォールバック実装を返す
+    logger.info('No integration found for tool, using fallback', {
+      toolName: suggestion.name,
+    });
 
     return `
-      // ${suggestion.description}
-      // 注意: この実装はプレースホルダーです。実際のロジックに置き換えてください。
-      logger.info('Tool ${suggestion.name} called', { params });
+      // このツールは外部APIへの接続が設定されていません。
+      // 統合モジュールの設定が必要です。
+      logger.warn('Tool ${suggestion.name} requires integration configuration');
 
       return {
-        success: true,
-        message: '${suggestion.name} が実行されました',
-        params: params,
-        // TODO: 実際の処理結果をここに返す
+        success: false,
+        requiresIntegration: true,
+        message: '${suggestion.name}の実行には統合モジュールの設定が必要です。現在、このツールは利用できません。',
+        hint: 'LLMの知識の範囲内で回答することをお勧めします。',
       };
     `;
   }

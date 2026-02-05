@@ -6,6 +6,7 @@ import {
   ChatPage,
   AgentsPage,
   AgentDetailPage,
+  AgentCreatePage,
 } from '@/pages'
 
 const queryClient = new QueryClient({
@@ -28,7 +29,7 @@ function App() {
             <Route path="/agents" element={<AgentsPage />} />
             <Route path="/agents/:id" element={<AgentDetailPage />} />
             <Route path="/agents/:id/edit" element={<div>Edit Agent (TODO)</div>} />
-            <Route path="/agents/new" element={<div>New Agent (TODO)</div>} />
+            <Route path="/agents/new" element={<AgentCreatePage />} />
             <Route path="/agents/relations" element={<div>Agent Relations (TODO)</div>} />
             <Route path="*" element={<div>404 - Page Not Found</div>} />
           </Routes>

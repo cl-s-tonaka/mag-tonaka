@@ -47,11 +47,13 @@ export function AgentCard({ agent, onClick }: AgentCardProps) {
           <div className="flex items-center justify-between text-sm text-muted-foreground">
             <div className="flex items-center gap-1">
               <Wrench className="h-4 w-4" />
-              <span>{agent.tools.length} tools</span>
+              <span>{agent.tools?.length ?? 0} tools</span>
             </div>
-            <span className="rounded bg-muted px-2 py-1 font-mono text-xs">
-              {agent.model}
-            </span>
+            {agent.model && (
+              <span className="rounded bg-muted px-2 py-1 font-mono text-xs">
+                {agent.model}
+              </span>
+            )}
           </div>
         </CardContent>
       </Card>

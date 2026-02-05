@@ -45,7 +45,15 @@ describe('Agents API', () => {
 
   describe('getAgents', () => {
     it('should fetch all agents', async () => {
-      const mockResponse = { data: { success: true, data: [mockAgent] } }
+      const mockResponse = {
+        data: {
+          success: true,
+          data: {
+            agents: [mockAgent],
+            pagination: { total: 1, limit: 20, offset: 0, hasMore: false },
+          },
+        },
+      }
       vi.mocked(apiClient.get).mockResolvedValue(mockResponse)
 
       const result = await getAgents()
@@ -57,7 +65,15 @@ describe('Agents API', () => {
     })
 
     it('should fetch agents with filters', async () => {
-      const mockResponse = { data: { success: true, data: [mockAgent] } }
+      const mockResponse = {
+        data: {
+          success: true,
+          data: {
+            agents: [mockAgent],
+            pagination: { total: 1, limit: 20, offset: 0, hasMore: false },
+          },
+        },
+      }
       vi.mocked(apiClient.get).mockResolvedValue(mockResponse)
 
       const params = { status: 'active' as const, search: 'test' }

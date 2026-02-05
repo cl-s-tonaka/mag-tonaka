@@ -8,7 +8,7 @@ export function DashboardPage() {
   const { data: agents, isLoading, error } = useAgents()
 
   const activeAgents = agents?.filter((a) => a.status === 'active') || []
-  const totalTools = agents?.reduce((sum, a) => sum + a.tools.length, 0) || 0
+  const totalTools = agents?.reduce((sum, a) => sum + (a.tools?.length ?? 0), 0) || 0
 
   return (
     <div className="space-y-6">
@@ -137,7 +137,7 @@ export function DashboardPage() {
                   >
                     <span className="font-medium">{agent.displayName}</span>
                     <span className="text-xs text-muted-foreground">
-                      {agent.tools.length} tools
+                      {agent.tools?.length ?? 0} tools
                     </span>
                   </Link>
                 ))}

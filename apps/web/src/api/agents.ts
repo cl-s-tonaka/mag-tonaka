@@ -10,16 +10,29 @@ import type {
 const AGENTS_ENDPOINT = '/v2/dynamic-agents'
 
 /**
+ * API response for agents list
+ */
+interface AgentsListResponse {
+  agents: DynamicAgentDefinition[]
+  pagination: {
+    total: number
+    limit: number
+    offset: number
+    hasMore: boolean
+  }
+}
+
+/**
  * Fetch all agents with optional filters
  */
 export async function getAgents(
   params?: AgentListParams
 ): Promise<DynamicAgentDefinition[]> {
-  const response = await apiClient.get<ApiResponse<DynamicAgentDefinition[]>>(
+  const response = await apiClient.get<ApiResponse<AgentsListResponse>>(
     AGENTS_ENDPOINT,
     { params }
   )
-  return response.data.data ?? []
+  return response.data.data?.agents ?? []
 }
 
 /**

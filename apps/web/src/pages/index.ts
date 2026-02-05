@@ -1,0 +1,4 @@
+export { DashboardPage } from './DashboardPage'
+export { ChatPage } from './ChatPage'
+export { AgentsPage } from './AgentsPage'
+export { AgentDetailPage } from './AgentDetailPage'

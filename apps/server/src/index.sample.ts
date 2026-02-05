@@ -8,6 +8,7 @@
 import { DynamicSystem } from './dynamic/dynamicSystem';
 import { FEATURE_FLAGS } from './dynamic/utils/featureFlags';
 import { createDynamicAgentsRouter } from './dynamic/api/dynamicAgentsRouter';
+// import cors from 'cors';
 
 /**
  * サーバー起動
@@ -80,6 +81,14 @@ async function startServer() {
   // const express = require('express');
   // const app = express();
   // app.use(express.json());
+
+  // CORS設定（フロントエンド開発サーバーからのアクセスを許可）
+  // app.use(cors({
+  //   origin: process.env.CORS_ORIGIN || 'http://localhost:5173',
+  //   credentials: true,
+  //   methods: ['GET', 'POST', 'PUT', 'DELETE', 'OPTIONS'],
+  //   allowedHeaders: ['Content-Type', 'Authorization', 'X-Request-ID'],
+  // }));
 
   // 既存APIエンドポイント
   // app.get('/api/agents', (req, res) => { ... });

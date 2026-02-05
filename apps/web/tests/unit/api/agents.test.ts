@@ -1,5 +1,5 @@
 import { describe, it, expect, beforeEach, vi } from 'vitest'
-import { apiClient } from './client'
+import { apiClient } from '@/api/client'
 import {
   getAgents,
   getAgent,
@@ -7,14 +7,14 @@ import {
   updateAgent,
   deleteAgent,
   executeAgent,
-} from './agents'
+} from '@/api/agents'
 import type {
   DynamicAgentDefinition,
   CreateAgentRequest,
   UpdateAgentRequest,
 } from '@/types'
 
-vi.mock('./client', () => ({
+vi.mock('@/api/client', () => ({
   apiClient: {
     get: vi.fn(),
     post: vi.fn(),

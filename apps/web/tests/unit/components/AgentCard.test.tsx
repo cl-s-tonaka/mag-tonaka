@@ -2,7 +2,7 @@ import { describe, it, expect, vi } from 'vitest'
 import { render, screen } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { BrowserRouter } from 'react-router-dom'
-import { AgentCard } from './AgentCard'
+import { AgentCard } from '@/components/agents/AgentCard'
 import type { DynamicAgentDefinition } from '@/types'
 
 const mockAgent: DynamicAgentDefinition = {

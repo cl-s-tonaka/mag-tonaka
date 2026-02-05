@@ -2,7 +2,7 @@ import { describe, it, expect, vi, beforeEach } from 'vitest'
 import { renderHook, act, waitFor } from '@testing-library/react'
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
 import type { ReactNode } from 'react'
-import { useChat } from './useChat'
+import { useChat } from '@/hooks/useChat'
 import * as agentsApi from '@/api/agents'
 
 vi.mock('@/api/agents')

@@ -2,7 +2,7 @@ import { describe, it, expect, vi, beforeEach } from 'vitest'
 import { renderHook, waitFor } from '@testing-library/react'
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
 import type { ReactNode } from 'react'
-import { useAgents, useAgent, useCreateAgent, useUpdateAgent, useDeleteAgent } from './useAgents'
+import { useAgents, useAgent, useCreateAgent, useUpdateAgent, useDeleteAgent } from '@/hooks/useAgents'
 import * as agentsApi from '@/api/agents'
 import type { DynamicAgentDefinition, CreateAgentRequest, UpdateAgentRequest } from '@/types'
 

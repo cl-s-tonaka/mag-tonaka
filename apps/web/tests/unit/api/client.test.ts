@@ -1,5 +1,5 @@
 import { describe, it, expect, beforeEach, vi, afterEach } from 'vitest'
-import { handleApiError } from './client'
+import { handleApiError } from '@/api/client'
 
 describe('API Client', () => {
   beforeEach(() => {
@@ -12,18 +12,18 @@ describe('API Client', () => {
 
   describe('apiClient', () => {
     it('should be an axios instance', async () => {
-      const { apiClient } = await import('./client')
+      const { apiClient } = await import('@/api/client')
       expect(apiClient).toBeDefined()
       expect(apiClient.defaults.baseURL).toBeDefined()
     })
 
     it('should have correct default headers', async () => {
-      const { apiClient } = await import('./client')
+      const { apiClient } = await import('@/api/client')
       expect(apiClient.defaults.headers['Content-Type']).toBe('application/json')
     })
 
     it('should have timeout configured', async () => {
-      const { apiClient } = await import('./client')
+      const { apiClient } = await import('@/api/client')
       expect(apiClient.defaults.timeout).toBe(30000)
     })
   })

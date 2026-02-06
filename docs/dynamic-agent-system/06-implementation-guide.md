@@ -416,18 +416,18 @@ if (FEATURE_FLAGS.ENABLE_DYNAMIC_AGENTS) {
 ENABLE_DYNAMIC_AGENTS=true npm run dev
 
 # エージェント作成テスト
-curl -X POST http://localhost:4310/api/v2/dynamic-agents \
+curl -X POST http://localhost:3001/api/v2/dynamic-agents \
   -H "Content-Type: application/json" \
   -d '{"agentId":"testAgent","displayName":"Test","description":"Test agent","instructions":"You are a test agent"}'
 
 # エージェント一覧確認
-curl http://localhost:4310/api/agents-with-examples | jq '.data[] | .id'
+curl http://localhost:3001/api/agents-with-examples | jq '.data[] | .id'
 
 # サーバー再起動
 npm run dev
 
 # エージェントが復元されていることを確認
-curl http://localhost:4310/api/agents-with-examples | jq '.data[] | .id'
+curl http://localhost:3001/api/agents-with-examples | jq '.data[] | .id'
 ```
 
 ---

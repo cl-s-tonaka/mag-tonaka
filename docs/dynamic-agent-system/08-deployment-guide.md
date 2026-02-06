@@ -83,10 +83,10 @@ tail -f logs/server.log | grep "dynamic"
 
 ```bash
 # ヘルスチェック
-curl http://localhost:4310/health
+curl http://localhost:3001/health
 
 # テストエージェント作成
-curl -X POST http://localhost:4310/api/v2/dynamic-agents \
+curl -X POST http://localhost:3001/api/v2/dynamic-agents \
   -H "Content-Type: application/json" \
   -d '{
     "agentId": "testAgent",
@@ -96,7 +96,7 @@ curl -X POST http://localhost:4310/api/v2/dynamic-agents \
   }'
 
 # エージェント一覧確認
-curl http://localhost:4310/api/agents-with-examples | jq '.data[] | .id'
+curl http://localhost:3001/api/agents-with-examples | jq '.data[] | .id'
 ```
 
 ---
@@ -253,7 +253,7 @@ function shouldEnableDynamicAgentsForUser(userId: string): boolean {
 scrape_configs:
   - job_name: 'mag-server'
     static_configs:
-      - targets: ['localhost:4310']
+      - targets: ['localhost:3001']
 ```
 
 **Grafanaダッシュボード**:
@@ -349,7 +349,7 @@ export ENABLE_DYNAMIC_AGENTS=false
 pm2 restart mag-server
 
 # 確認
-curl http://localhost:4310/api/agents-with-examples | jq '.data[] | select(.isDynamic)'
+curl http://localhost:3001/api/agents-with-examples | jq '.data[] | select(.isDynamic)'
 # 期待値: 空の配列
 ```
 
@@ -371,7 +371,7 @@ pm2 restart mag-server
 
 # 4. 確認
 npm test
-curl http://localhost:4310/health
+curl http://localhost:3001/health
 ```
 
 ### 7.3 部分ロールバック
@@ -407,7 +407,7 @@ pm2 restart mag-server
 
 ```bash
 # 診断
-curl http://localhost:4310/metrics | grep dynamic_tool_execution_errors
+curl http://localhost:3001/metrics | grep dynamic_tool_execution_errors
 
 # 解決策
 # ツール実行を一時的に無効化

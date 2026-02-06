@@ -43,7 +43,7 @@ async function startServer() {
     res.json({ status: 'ok' });
   });
 
-  const PORT = process.env.PORT || 4310;
+  const PORT = process.env.PORT || 3001;
   app.listen(PORT, () => {
     console.log(`Server is running on http://localhost:${PORT}`);
     console.log('Endpoints:');

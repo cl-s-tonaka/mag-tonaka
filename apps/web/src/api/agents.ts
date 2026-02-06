@@ -80,7 +80,17 @@ export async function deleteAgent(agentId: string): Promise<void> {
 }
 
 /**
- * Execute agent response
+ * Chat agent response
+ */
+export interface ChatAgentResponse {
+  agentId: string
+  response: string
+  toolCalls?: unknown[]
+  conversationHistory?: unknown[]
+}
+
+/**
+ * Execute agent response (alias for compatibility)
  */
 export interface ExecuteAgentResponse {
   response: string
@@ -88,16 +98,31 @@ export interface ExecuteAgentResponse {
 }
 
 /**
- * Execute an agent with a message
+ * Chat with an agent
+ */
+export async function chatWithAgent(
+  agentId: string,
+  message: string,
+  clearHistory?: boolean
+): Promise<ChatAgentResponse> {
+  const response = await apiClient.post<ApiResponse<ChatAgentResponse>>(
+    `${AGENTS_ENDPOINT}/${agentId}/chat`,
+    { message, clearHistory }
+  )
+  return response.data.data!
+}
+
+/**
+ * Execute an agent with a message (uses chat endpoint)
  */
 export async function executeAgent(
   agentId: string,
   message: string,
   sessionId?: string
 ): Promise<ExecuteAgentResponse> {
-  const response = await apiClient.post<ApiResponse<ExecuteAgentResponse>>(
-    `${AGENTS_ENDPOINT}/${agentId}/execute`,
-    { message, sessionId }
-  )
-  return response.data.data!
+  const chatResponse = await chatWithAgent(agentId, message, !sessionId)
+  return {
+    response: chatResponse.response,
+    sessionId: chatResponse.agentId, // Use agentId as session identifier
+  }
 }

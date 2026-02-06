@@ -32,6 +32,13 @@ export const FEATURE_FLAGS = {
    * デフォルト: true（本番環境推奨）
    */
   ENABLE_VM2_SANDBOX: process.env.ENABLE_VM2_SANDBOX !== 'false',
+
+  /**
+   * 開発モード（モックレスポンス有効化）
+   * LLM APIキーが設定されていない場合にモックレスポンスを返す
+   * デフォルト: true（本番環境ではfalseに設定）
+   */
+  ENABLE_DEV_MODE: process.env.NODE_ENV !== 'production' && !process.env.LITELLM_API_KEY,
 };
 
 /**

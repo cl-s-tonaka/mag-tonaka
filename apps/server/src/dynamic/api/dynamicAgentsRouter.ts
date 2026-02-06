@@ -9,6 +9,42 @@ import { validateCreateAgentRequest, validateUpdateAgentRequest } from './valida
 import { createErrorResponse, getHttpStatus } from './errorHandlers';
 import { logger } from '../utils/logger';
 import { randomUUID } from 'crypto';
+import { FEATURE_FLAGS } from '../utils/featureFlags';
+
+/**
+ * 開発モード用のモックレスポンスを生成
+ */
+function generateMockResponse(agentId: string, message: string): string {
+  const responses: Record<string, string[]> = {
+    'greeting-agent': [
+      `Hello! Welcome to the Dynamic Agent System. How can I help you today?`,
+      `Hi there! I'm the Greeting Agent. Nice to meet you!`,
+      `Welcome! I'm here to help you get started. What would you like to know?`,
+    ],
+    'code-assistant': [
+      `I'd be happy to help you with your coding question! Here's my analysis:\n\n${message}\n\nLet me know if you need more details.`,
+      `Great question about coding! Here's what I suggest:\n\n1. First, consider the problem scope\n2. Break it down into smaller parts\n3. Implement step by step\n\nWould you like me to elaborate?`,
+    ],
+    'data-analyst': [
+      `Based on your query about "${message}", here's my analysis:\n\n- Data patterns suggest interesting trends\n- Statistical significance is notable\n- Recommend further investigation\n\nShall I dive deeper into any aspect?`,
+      `Interesting data question! Let me analyze:\n\n1. First, we need to understand the data structure\n2. Then apply appropriate statistical methods\n3. Finally, visualize the results\n\nWhat specific insights are you looking for?`,
+    ],
+    'writing-assistant': [
+      `I'd be happy to help with your writing! Here are my suggestions:\n\n- Consider your audience\n- Keep sentences clear and concise\n- Use active voice when possible\n\nWould you like me to review specific text?`,
+      `Great topic! Here's how I'd approach writing about "${message}":\n\n1. Start with a compelling hook\n2. Develop your main points\n3. End with a strong conclusion\n\nShall I draft something?`,
+    ],
+    'research-agent': [
+      `I'll research "${message}" for you. Here's what I found:\n\n- Multiple perspectives exist on this topic\n- Key sources suggest...\n- Further investigation recommended\n\nWould you like more detailed findings?`,
+      `Interesting research topic! Based on my analysis:\n\n1. The main consensus is...\n2. Some debate exists around...\n3. Recent developments include...\n\nWhat aspect interests you most?`,
+    ],
+  };
+
+  const agentResponses = responses[agentId] || [
+    `Thank you for your message: "${message}"\n\nI'm currently running in development mode without an LLM connection. In production, I would provide a more detailed response based on my instructions.`,
+  ];
+
+  return agentResponses[Math.floor(Math.random() * agentResponses.length)];
+}
 
 /**
  * Express Router を作成（簡易実装）
@@ -234,17 +270,30 @@ export function createDynamicAgentsRouter(manager: DynamicAgentManager): any {
           throw new Error('task is required and must be a string');
         }
 
-        // エージェントを実行
-        const result = await agent.run(task, context);
+        let output: string;
+        let toolCalls: unknown[] = [];
+        let model = agent.model;
+
+        // 開発モードではモックレスポンスを使用
+        if (FEATURE_FLAGS.ENABLE_DEV_MODE) {
+          logger.info('Using mock response (dev mode)', { agentId });
+          output = generateMockResponse(agentId, task);
+        } else {
+          // エージェントを実行
+          const result = await agent.run(task, context);
+          output = result.output;
+          toolCalls = result.toolCalls || [];
+          model = result.model || agent.model;
+        }
 
         // レスポンス
         const response: ApiResponse = {
           success: true,
           data: {
             agentId,
-            output: result.output,
-            toolCalls: result.toolCalls || [],
-            model: result.model || agent.model,
+            output,
+            toolCalls,
+            model,
             executedAt: new Date().toISOString(),
           },
         };
@@ -286,16 +335,27 @@ export function createDynamicAgentsRouter(manager: DynamicAgentManager): any {
           agent.clearHistory();
         }
 
-        // エージェントを実行
-        const result = await agent.run(message);
+        let output: string;
+        let toolCalls: unknown[] = [];
+
+        // 開発モードではモックレスポンスを使用
+        if (FEATURE_FLAGS.ENABLE_DEV_MODE) {
+          logger.info('Using mock response (dev mode)', { agentId });
+          output = generateMockResponse(agentId, message);
+        } else {
+          // エージェントを実行
+          const result = await agent.run(message);
+          output = result.output;
+          toolCalls = result.toolCalls || [];
+        }
 
         // レスポンス
         const response: ApiResponse = {
           success: true,
           data: {
             agentId,
-            response: result.output,
-            toolCalls: result.toolCalls || [],
+            response: output,
+            toolCalls,
             conversationHistory: agent.getHistory?.() || [],
           },
         };

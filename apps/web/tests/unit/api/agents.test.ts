@@ -178,13 +178,15 @@ describe('Agents API', () => {
   })
 
   describe('executeAgent', () => {
-    it('should execute an agent with a message', async () => {
+    it('should execute an agent with a message (new session)', async () => {
       const mockResponse = {
         data: {
           success: true,
           data: {
+            agentId: 'test-agent',
             response: 'Agent response',
-            sessionId: 'session-123',
+            toolCalls: [],
+            conversationHistory: [],
           },
         },
       }
@@ -193,12 +195,12 @@ describe('Agents API', () => {
       const result = await executeAgent('test-agent', 'Hello')
 
       expect(apiClient.post).toHaveBeenCalledWith(
-        '/v2/dynamic-agents/test-agent/execute',
-        { message: 'Hello', sessionId: undefined }
+        '/v2/dynamic-agents/test-agent/chat',
+        { message: 'Hello', clearHistory: true }
       )
       expect(result).toEqual({
         response: 'Agent response',
-        sessionId: 'session-123',
+        sessionId: 'test-agent',
       })
     })
 
@@ -207,8 +209,10 @@ describe('Agents API', () => {
         data: {
           success: true,
           data: {
+            agentId: 'test-agent',
             response: 'Agent response',
-            sessionId: 'session-123',
+            toolCalls: [],
+            conversationHistory: [],
           },
         },
       }
@@ -217,12 +221,12 @@ describe('Agents API', () => {
       const result = await executeAgent('test-agent', 'Hello', 'session-123')
 
       expect(apiClient.post).toHaveBeenCalledWith(
-        '/v2/dynamic-agents/test-agent/execute',
-        { message: 'Hello', sessionId: 'session-123' }
+        '/v2/dynamic-agents/test-agent/chat',
+        { message: 'Hello', clearHistory: false }
       )
       expect(result).toEqual({
         response: 'Agent response',
-        sessionId: 'session-123',
+        sessionId: 'test-agent',
       })
     })
   })

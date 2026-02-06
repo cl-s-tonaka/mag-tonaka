@@ -7,6 +7,7 @@ import { DynamicAgentManager } from './managers/DynamicAgentManager';
 import { runMigrations } from './storage/migrations';
 import { logger } from './utils/logger';
 import { FEATURE_FLAGS, logFeatureFlagsStatus } from './utils/featureFlags';
+import { seedAgents } from './data/seedAgents';
 
 /**
  * 動的エージェントシステム
@@ -55,7 +56,14 @@ export class DynamicSystem {
       logger.info('Loading dynamic agents...');
       const agents = await this.manager.loadAllAgents();
 
-      logger.info(`Dynamic agent system initialized successfully with ${Object.keys(agents).length} agents`);
+      // 4. シードデータの作成（エージェントが存在しない場合）
+      if (Object.keys(agents).length === 0) {
+        logger.info('No agents found, creating seed agents...');
+        await this.createSeedAgents();
+      }
+
+      const finalAgentCount = this.manager.getAllAgents().length;
+      logger.info(`Dynamic agent system initialized successfully with ${finalAgentCount} agents`);
 
       return agents;
     } catch (error: any) {
@@ -75,6 +83,30 @@ export class DynamicSystem {
       throw new Error('Dynamic system not initialized');
     }
     return this.manager;
+  }
+
+  /**
+   * シードエージェントを作成
+   */
+  private async createSeedAgents(): Promise<void> {
+    if (!this.manager) {
+      throw new Error('Manager not initialized');
+    }
+
+    for (const seedAgent of seedAgents) {
+      try {
+        await this.manager.createAgent({
+          agentId: seedAgent.agentId,
+          displayName: seedAgent.displayName,
+          description: seedAgent.description,
+          instructions: seedAgent.instructions,
+          model: seedAgent.model,
+        });
+        logger.info(`Created seed agent: ${seedAgent.displayName}`);
+      } catch (error: any) {
+        logger.warn(`Failed to create seed agent ${seedAgent.agentId}: ${error.message}`);
+      }
+    }
   }
 
   /**

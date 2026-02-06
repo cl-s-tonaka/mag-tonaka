@@ -2,8 +2,13 @@
  * 動的エージェントシステム - テストサーバー
  */
 
-// 環境変数設定（モジュール読み込み前に設定）
-process.env.ENABLE_DYNAMIC_AGENTS = 'true';
+// 環境変数を最初に読み込む
+import 'dotenv/config';
+
+// フィーチャーフラグのデフォルト設定（.envで未設定の場合）
+if (!process.env.ENABLE_DYNAMIC_AGENTS) {
+  process.env.ENABLE_DYNAMIC_AGENTS = 'true';
+}
 
 import express from 'express';
 import { DynamicSystem } from './dynamic/dynamicSystem';
@@ -30,6 +35,8 @@ async function startServer() {
   app.get('/api/v2/dynamic-agents/:id', routes.getAgent);
   app.put('/api/v2/dynamic-agents/:id', routes.updateAgent);
   app.delete('/api/v2/dynamic-agents/:id', routes.deleteAgent);
+  app.post('/api/v2/dynamic-agents/:id/run', routes.runAgent);
+  app.post('/api/v2/dynamic-agents/:id/chat', routes.chatWithAgent);
 
   // ヘルスチェック
   app.get('/health', (req, res) => {
@@ -45,6 +52,8 @@ async function startServer() {
     console.log('  GET    /api/v2/dynamic-agents/:id');
     console.log('  PUT    /api/v2/dynamic-agents/:id');
     console.log('  DELETE /api/v2/dynamic-agents/:id');
+    console.log('  POST   /api/v2/dynamic-agents/:id/run');
+    console.log('  POST   /api/v2/dynamic-agents/:id/chat');
   });
 
   process.on('SIGINT', async () => {
